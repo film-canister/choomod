@@ -1,7 +1,7 @@
 # ChooMod
 ### A Cyberpunk 2077 mod manager for Linux — built for the terminal
 
-![Version](https://img.shields.io/badge/version-0.2.0-red) ![Platform](https://img.shields.io/badge/platform-Linux-blue) ![Python](https://img.shields.io/badge/python-3.10+-yellow)
+![Version](https://img.shields.io/badge/version-0.3.0-red) ![Platform](https://img.shields.io/badge/platform-Linux-blue) ![Python](https://img.shields.io/badge/python-3.10+-yellow)
 
 ---
 
@@ -23,12 +23,13 @@ ChooMod is that solution — or at least the start of one.
 
 ---
 
-## What it can do (v0.2.0)
+## What it can do (v0.3.0)
 
 - **Auto-detects your game install** — scans known Heroic and Steam paths, no manual setup required in most cases
 - **Zip installer with pre-install preview** — inspect what a mod zip contains and where every file will go before anything is written to disk
 - **Full subfolder preservation** — complex mods with Redscript, TweakXL, CET plugins, and ArchiveXL files all route correctly
 - **Manifest-tracked installs** — every file placed by ChooMod is recorded, making clean uninstalls possible
+- **Path-based manifest matching** — mods with multiple archive files are correctly identified and uninstalled cleanly
 - **Enable/disable toggling** — non-destructive, just renames files
 - **Search and filter** — find mods by name or category
 - **Activity log** — timestamped record of everything ChooMod has done
@@ -53,6 +54,7 @@ ChooMod is that solution — or at least the start of one.
 - Conflict detection between mods
 - Load order management
 - Optional/variant file selection during install
+- Grouping multi-archive mods as a single entry in the mod list
 - Nexus Mods API integration
 
 These are all planned. This is a passion project in active development, not a finished product.
@@ -149,20 +151,44 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ## Roadmap
 
+**Core reliability**
+- [ ] Group multi-archive mods as a single mod list entry
+- [ ] Conflict detection (two mods writing the same file)
+- [ ] Adopt unmanaged mods into ChooMod's manifest
+
+**Quality of life**
 - [ ] Pacman-style install progress output
-- [ ] Conflict detection
-- [ ] Dependency tagging and warnings  
+- [ ] Optional/variant file selection during install
+- [ ] Separate tab for framework/dependency mods (CET, Redscript, Red4Ext etc)
+
+**Power features**
+- [ ] Dependency tagging and warnings
 - [ ] Load order management
 - [ ] Profiles (multiple mod loadouts)
-- [ ] Optional/variant file selection during install
-- [ ] Nexus Mods API integration
+- [ ] Nexus Mods API integration for version checking and dependency data
+
+**Future**
 - [ ] Support for other games (contributions welcome)
 
 ---
 
-## License
+## Changelog
 
-MIT — do whatever you want with it, credit appreciated but not required.
+**v0.3.0**
+- Path-based manifest matching — multi-archive mods now correctly identified and uninstalled
+- Manifest consolidation — single config location at `~/.config/choomod/`
+- Bug fix: manifest key now uses zip filename consistently
+
+**v0.2.0**
+- Zip installer with pre-install preview
+- Full subfolder preservation for complex mods
+- Manifest-tracked installs with clean uninstall
+- Verified working: Virtual Atelier (47 files), Limited HUD, Native Settings UI
+
+**v0.1.0**
+- Basic mod list display
+- Enable/disable toggling
+- GOG/Heroic and Steam auto-detection
 
 ---
 

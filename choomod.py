@@ -24,7 +24,7 @@ from textual.widgets import (
 # ─── Constants ────────────────────────────────────────────────────────────────
 
 APP_VERSION = "0.2.0"
-MANIFEST_FILE = Path.home() / ".config" / "ChooMod" / "manifest.json"
+MANIFEST_FILE = Path.home() / ".config" / "choomod" / "manifest.json"
 
 # Known CP2077 install locations to scan
 SEARCH_PATHS = {
@@ -267,6 +267,8 @@ def install_from_plan(
     """
     installed_files = []
     errors = []
+    done = 0
+    total = len(plan["auto"])
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         for zip_entry, destination in plan["auto"]:
@@ -308,21 +310,25 @@ def install_from_plan(
             # exist_ok=True = don't error if folder already exists
             dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # ── Extract and write the file ─────────────────────────────────
+            # ── Extract and write the file ────────────────────────
             try:
+                # when file is extracted, filename and destination are printed
+                print(f"  {p.name}  →  {destination}")
                 with zf.open(zip_entry) as src, open(dest_path, "wb") as dst:
-                    # copyfileobj reads in chunks — memory-safe for large files
                     shutil.copyfileobj(src, dst)
                 installed_files.append(str(dest_path))
+                done += 1
+                print(f"  ✓  [{done}/{total}]")
             except Exception as e:
                 errors.append(f"{p.name}: {e}")
-
     if not installed_files:
         return False, "No files were installed.", []
 
     # ── Record in manifest ─────────────────────────────────────────────────
     # This is what makes uninstall possible later.
-    # We store every file path we wrote, plus metadata.
+    # We store every file path we wrote, plus metadata
+
+    
     manifest.setdefault("mods", {})[mod_name] = {
         "installed_files": installed_files,
         "category": "Uncategorised",
@@ -381,6 +387,14 @@ def uninstall_mod(mod_name: str, manifest: dict) -> tuple[bool, str]:
 
 # ─── Mod scanning (for mods installed outside ChooMod) ───────────────────────
 
+def find_manifest_entry(file_path: str, manifest: dict):
+    for mod_name, mod_data in manifest.get("mods", {}).items():
+        for installed_file in mod_data.get("installed_files", []):
+            if installed_file == file_path:
+                return mod_name
+    # nothing here, choom :(
+    return None
+
 def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
     mod_dir = get_mod_dir(game_path)
     if not mod_dir.exists():
@@ -393,7 +407,8 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
     for f in sorted(mod_dir.glob("*.archive")):
         name = f.stem
         seen.add(name)
-        meta = managed.get(name, {})
+        managed_key = find_manifest_entry(str(f), manifest)
+        meta = managed.get(managed_key, {}) if managed_key else {}
         mods.append({
             "name": name,
             "file": str(f),
@@ -402,7 +417,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
             "category": meta.get("category", "Uncategorised"),
             "notes": meta.get("notes", ""),
             "added": meta.get("added", "Unknown"),
-            "managed": name in managed,
+            "managed": managed_key is not None,
             "file_count": len(meta.get("installed_files", [])),
         })
 
@@ -410,7 +425,8 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
         name = f.name.replace(".archive.disabled", "")
         if name in seen:
             continue
-        meta = managed.get(name, {})
+        managed_key = find_manifest_entry(str(f), manifest)
+        meta = managed.get(managed_key, {}) if managed_key else {}
         mods.append({
             "name": name,
             "file": str(f),
@@ -419,7 +435,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
             "category": meta.get("category", "Uncategorised"),
             "notes": meta.get("notes", ""),
             "added": meta.get("added", "Unknown"),
-            "managed": name in managed,
+            "managed": managed_key is not None,
             "file_count": len(meta.get("installed_files", [])),
         })
 

@@ -173,6 +173,7 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 **Priority 3 — Power features**
 - [ ] Load order management
 - [ ] Profiles (multiple mod loadouts)
+- [ ] Investigate disabled mods still appearing in in-game Mod Settings menus
 - [ ] Nexus Mods API integration for version checking and dependency data
 
 **Future — If there's demand**

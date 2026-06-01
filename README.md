@@ -17,9 +17,9 @@ It supports both **GOG via Heroic Launcher** and **Steam**.
 
 The honest answer: because modding CP2077 on Linux is more painful than it should be.
 
-Vortex doesn't run natively on Linux. The old Nexus Mod Manager is unsupported. Running either through Wine works until it doesn't. For users who don't want to dual boot or wrestle with compatibility layers just to manage a few mods, there wasn't a clean native solution.
+Vortex doesn't run natively on Linux. The old Nexus Mod Manager is unsupported. The Nexus Mods App — which did support Linux — was quietly archived in February 2026. Running any of these through Wine works until it doesn't.
 
-ChooMod is that solution — or at least the start of one.
+ChooMod isn't trying to replace any of those. It's solving one specific problem: give CP2077 players on Linux a native, no-fuss mod manager that actually works. No Wine, no Proton workarounds, no dual booting.
 
 ---
 
@@ -145,6 +145,8 @@ This started as a personal frustration. I'm **film** — not a programmer, just 
 
 The code was written with the help of **Claude (Anthropic)**, which handled the implementation. The idea, the design decisions, the feature priorities, and the testing are mine. I'm learning Python through building this, which means development is honest about what it is: a passion project by someone figuring it out as they go.
 
+ChooMod is strictly focused on Cyberpunk 2077 for now. Other games have their own mod managers. If this project takes off and there's demand, other games could follow — but that's not the current goal.
+
 If you're a developer and you want to contribute, that's genuinely welcome — especially around dependency resolution and conflict detection, which are the next big gaps.
 
 ---
@@ -155,6 +157,8 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - [ ] Group multi-archive mods as a single mod list entry
 - [ ] Conflict detection (two mods writing the same file)
 - [ ] Adopt unmanaged mods into ChooMod's manifest
+- [ ] Partial install rollback (clean up files if install fails mid-way)
+- [ ] First-run setup checker — verify launch options are correctly set for Steam/Heroic
 
 **Quality of life**
 - [ ] Pacman-style install progress output
@@ -167,8 +171,9 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - [ ] Profiles (multiple mod loadouts)
 - [ ] Nexus Mods API integration for version checking and dependency data
 
-**Future**
-- [ ] Support for other games (contributions welcome)
+**Future (if there's demand)**
+- [ ] Support for additional games
+- [ ] Windows support
 
 ---
 

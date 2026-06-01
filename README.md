@@ -23,10 +23,11 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 
 ---
 
-## What it can do (v0.3.0)
+## What it can do (v0.3.1)
 
 - **Auto-detects your game install** — scans known Heroic and Steam paths, no manual setup required in most cases
 - **Zip installer with pre-install preview** — inspect what a mod zip contains and where every file will go before anything is written to disk
+- **Separate tabs for dependencies** - Good to know what's missing if you're installing mods for the first time!
 - **Full subfolder preservation** — complex mods with Redscript, TweakXL, CET plugins, and ArchiveXL files all route correctly
 - **Manifest-tracked installs** — every file placed by ChooMod is recorded, making clean uninstalls possible
 - **Path-based manifest matching** — mods with multiple archive files are correctly identified and uninstalled cleanly
@@ -163,7 +164,7 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 **Quality of life**
 - [ ] Pacman-style install progress output
 - [ ] Optional/variant file selection during install
-- [ ] Separate tab for framework/dependency mods (CET, Redscript, Red4Ext etc)
+- [x] Separate tab for framework/dependency mods (CET, Redscript, Red4Ext etc)
 
 **Power features**
 - [ ] Dependency tagging and warnings

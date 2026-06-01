@@ -179,6 +179,10 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ## Changelog
 
+**v0.3.1**
+- added tab menu showing install status for required mod dependencies (ex: CET, Red4Ext, etc.)
+- github and nexusmods links for each framework in order to maintain compatibility
+
 **v0.3.0**
 - Path-based manifest matching — multi-archive mods now correctly identified and uninstalled
 - Manifest consolidation — single config location at `~/.config/choomod/`

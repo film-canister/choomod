@@ -23,7 +23,7 @@ from textual.widgets import (
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.1"
 MANIFEST_FILE = Path.home() / ".config" / "choomod" / "manifest.json"
 
 # Known CP2077 install locations to scan
@@ -79,6 +79,60 @@ FILE_ROUTES = [
     # Red4Ext DLLs and plugins
     ("path",   "bin/x64",                        "bin/x64"),
 ]
+
+FRAMEWORK_MODS = [
+    {
+        "name": "Cyber Engine Tweaks",
+        "check_path": "bin/x64/plugins/cyber_engine_tweaks",
+        "url": "https://github.com/maximegmd/CyberEngineTweaks",
+        "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/107"
+    },
+    {
+        "name": "Red4Ext",
+        "check_path": "red4ext",
+        "url": "https://github.com/WopsS/RED4ext",
+        "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/2380"
+    },
+    {
+        "name": "Redscript",
+        "check_path": "engine/tools/scc.exe",
+        "url": "https://github.com/jac3km4/redscript",
+        "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/1511"
+    },
+    {
+        "name": "ArchiveXL",
+        "check_path": "red4ext/plugins/ArchiveXL",
+        "url": "https://github.com/psiberx/cp2077-archive-xl",
+        "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/4198"
+    },
+    {
+        "name": "TweakXL",
+        "check_path": "red4ext/plugins/TweakXL",
+        "url": "https://github.com/psiberx/cp2077-tweak-xl",
+        "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/4197"
+    },
+    {
+        "name": "Codeware",
+        "check_path": "red4ext/plugins/Codeware",
+        "url": "https://github.com/psiberx/cp2077-codeware",
+        "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/7381"
+    },
+]
+
+def check_frameworks(game_path: Path) -> list[dict]:
+    results = []
+    
+    for framework in FRAMEWORK_MODS:
+        full_path = game_path / framework["check_path"]
+        installed = full_path.exists()
+        results.append({
+            "name": framework["name"],
+            "installed": installed,
+            "url": framework["url"],
+            "nexus_url": framework["nexus_url"],
+        })
+    
+    return results
 
 # Extensions we recognise but deliberately skip (readmes, screenshots etc)
 SKIP_EXTENSIONS = {".txt", ".md", ".png", ".jpg", ".jpeg", ".pdf", ".url", ".gif"}
@@ -730,6 +784,11 @@ class ChooMod(App):
                 with ScrollableContainer(id="log-container"):
                     yield Static("// Activity log //", classes="log-line")
 
+            with TabPane("Dependencies", id="tab-deps"):
+                with Vertical(id="deps-container"):
+                    yield Static("// Framework mod status //", classes="log-line")
+                    yield DataTable(id="deps-table", cursor_type="none")
+
             with TabPane("Settings", id="tab-settings"):
                 with Vertical(id="settings-container"):
                     with Horizontal(classes="setting-row"):
@@ -752,6 +811,7 @@ class ChooMod(App):
     def on_mount(self):
         self._build_table()
         self._refresh_log_tab()
+        self._build_deps_table()
 
     # ── Table ─────────────────────────────────────────────────────────────────
 
@@ -773,6 +833,30 @@ class ChooMod(App):
                 f"{mod['size_kb']} KB",
                 mod["notes"] or "—",
                 key=mod["name"],
+            )
+    
+    def _stats_text(self) -> str:
+        total   = len(self.mods)
+        enabled = sum(1 for m in self.mods if m["enabled"])
+        managed = sum(1 for m in self.mods if m["managed"])
+        return f"[bold]{enabled}[/] on / [bold]{total}[/] total / [cyan]{managed}[/] managed"
+
+    def _build_deps_table(self):
+        if not self.game_path:
+            return
+        table = self.query_one("#deps-table", DataTable)
+        table.clear(columns=True)
+        table.add_columns("", "Framework", "GitHub", "Nexus")
+
+        frameworks = check_frameworks(self.game_path)
+        for fw in frameworks:
+            status = "[green]✓[/green]" if fw["installed"] else "[red]✗[/red]"
+            table.add_row(
+                status,
+                fw["name"],
+                fw["url"],
+                fw["nexus_url"],
+                key=fw["name"],
             )
 
     def _filtered_mods(self) -> list[dict]:

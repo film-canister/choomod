@@ -154,25 +154,28 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ## Roadmap
 
-**Core reliability**
+**Priority 1 — Core reliability**
+- [ ] Conflict detection (two mods writing the same file) — in development
+- [ ] Partial install rollback (clean up files if install fails mid-way) — in development
+- [ ] Fix `.reds` and `.dll` routing when mod zips do not use the expected folder layout
+- [ ] Show managed script/tweak/Lua/CET-only mods in the mod list
 - [ ] Group multi-archive mods as a single mod list entry
-- [ ] Conflict detection (two mods writing the same file)
 - [ ] Adopt unmanaged mods into ChooMod's manifest
-- [ ] Partial install rollback (clean up files if install fails mid-way)
-- [ ] First-run setup checker — verify launch options are correctly set for Steam/Heroic
 
-**Quality of life**
-- [ ] Pacman-style install progress output
+**Priority 2 — Install experience**
 - [ ] Optional/variant file selection during install
+- [ ] Dependency tagging and warnings
+- [ ] First-run setup checker — verify launch options are correctly set for Steam/Heroic
+- [ ] Pacman-style install progress output
+- [ ] Support `.7z` mod archives, either through optional `py7zr` support or system `7z`
 - [x] Separate tab for framework/dependency mods (CET, Redscript, Red4Ext etc)
 
-**Power features**
-- [ ] Dependency tagging and warnings
+**Priority 3 — Power features**
 - [ ] Load order management
 - [ ] Profiles (multiple mod loadouts)
 - [ ] Nexus Mods API integration for version checking and dependency data
 
-**Future (if there's demand)**
+**Future — If there's demand**
 - [ ] Support for additional games
 - [ ] Windows support
 

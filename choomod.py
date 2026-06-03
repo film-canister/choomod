@@ -601,12 +601,12 @@ class InstallPreviewModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="modal-box-wide"):
             yield Label(f"Install: {self._zip_name}", id="modal-title")
-            yield Static(format_plan_summary(self._plan), id="modal-body")
+            yield Static(format_plan_summary(self._plan), id="modal-plan")
             if self._conflicts:
                 conflict_lines = ["[red]⚠ Conflicts detected:[/red]"]
                 for c in self._conflicts:
                     conflict_lines.append(f"  [red]{c['file']}[/red] already owned by [yellow]{c['owned_by']}[/yellow]")
-                yield Static("\n".join(conflict_lines), id="modal-body")
+                yield Static("\n".join(conflict_lines), id="modal-conflicts")
             with Horizontal(id="modal-btns"):
                 can_install = bool(self._plan["auto"])
                 yield Button(
@@ -755,7 +755,7 @@ ModalScreen { align: center middle; background: rgba(0,0,0,0.8); }
     padding: 2 3; width: 90; min-height: 14; max-height: 40;
 }
 #modal-title { color: #FCE300; text-style: bold; margin-bottom: 1; }
-#modal-body { color: #c8c8d8; margin-bottom: 2; }
+#modal-body, #modal-plan { color: #c8c8d8; margin-bottom: 2; }
 #modal-btns { align: right middle; height: 3; }
 .field-label { color: #5a5a7a; margin-top: 1; }
 

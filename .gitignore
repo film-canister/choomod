@@ -23,4 +23,6 @@ Thumbs.db
 # ChooMod runtime files
 # (manifest lives in ~/.config/nightmod, not the repo)
 manifest.json
+choomod_dev.py
 choomod ai working notes
+choomod_ai_working_notes.md

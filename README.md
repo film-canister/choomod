@@ -241,4 +241,4 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ---
 
-*Choom is Night City slang for friend. Felt right.*
+*Choom is Night City slang for friend. Felt right.*g

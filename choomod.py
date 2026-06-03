@@ -61,6 +61,10 @@ FILE_ROUTES = [
     # Standard mod archives
     ("suffix", ".archive",                       "archive/pc/mod"),
 
+    # Red4Ext plugin folders — must come before r6/scripts rule
+    # to catch .reds files that live inside red4ext/plugins/
+    ("path", "red4ext/plugins",                 "red4ext/plugins"),
+
     # Redscript source files
     ("path",   "r6/scripts",                     "r6/scripts"),
 
@@ -72,6 +76,12 @@ FILE_ROUTES = [
 
     # Input bindings
     ("path",   "r6/input",                       "r6/input"),
+
+    # Engine config files
+    ("path", "engine/config", "engine/config"),
+
+    # Redscript cache
+    ("path", "r6/cache", "r6/cache"),
 
     # Cyber Engine Tweaks mods (lua scripts)
     ("path",   "bin/x64/plugins/cyber_engine_tweaks", "bin/x64/plugins/cyber_engine_tweaks"),
@@ -290,6 +300,30 @@ def format_plan_summary(plan: dict) -> str:
 
     return "\n".join(lines)
 
+def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
+    conflicts = []
+
+    for zip_entry, destination in plan["auto"]:
+        p = Path(zip_entry)
+        dest_root_parts = Path(destination).parts
+        p_parts = p.parts
+        last_dest_part = dest_root_parts[-1]
+        try:
+            idx = list(p_parts).index(last_dest_part)
+            relative_subpath = Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else p.name
+        except ValueError:
+            relative_subpath = p.name
+
+        full_dest = str(game_path / destination / relative_subpath)
+        existing_owner = find_manifest_entry(full_dest, manifest)
+
+        if existing_owner:
+            conflicts.append({
+                "file": p.name,
+                "owned_by": existing_owner,
+            })
+
+    return conflicts
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ZIP INSTALLER
@@ -492,6 +526,29 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
             "managed": managed_key is not None,
             "file_count": len(meta.get("installed_files", [])),
         })
+
+
+    already_listed = set()
+    for m in mods:
+        key = find_manifest_entry(m["file"], manifest)
+        if key:
+            already_listed.add(key)
+        else:
+            already_listed.add(m["name"])
+
+    for mod_name, mod_data in manifest.get("mods", {}).items():
+        if mod_name not in already_listed:
+            mods.append({
+                "name": mod_name,
+                "file": mod_data.get("source_zip", ""),
+                "enabled": True,
+                "size_kb": 0,
+                "category": mod_data.get("category", "Script/Plugin"),
+                "notes": mod_data.get("notes", ""),
+                "added": mod_data.get("added", "Unknown"),
+                "managed": True,
+                "file_count": len(mod_data.get("installed_files", [])),
+            })
 
     return mods
 
@@ -871,12 +928,6 @@ class ChooMod(App):
         elif self.current_filter == "Managed":
             mods = [m for m in mods if m["managed"]]
         return mods
-
-    def _stats_text(self) -> str:
-        total   = len(self.mods)
-        enabled = sum(1 for m in self.mods if m["enabled"])
-        managed = sum(1 for m in self.mods if m["managed"])
-        return f"[bold]{enabled}[/] on / [bold]{total}[/] total / [cyan]{managed}[/] managed"
 
     def _get_selected_mod(self) -> dict | None:
         table = self.query_one("#mod-table", DataTable)

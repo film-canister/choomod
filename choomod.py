@@ -24,7 +24,7 @@ from textual.widgets import (
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 MANIFEST_FILE = Path.home() / ".config" / "choomod" / "manifest.json"
 
 # Known CP2077 install locations to scan

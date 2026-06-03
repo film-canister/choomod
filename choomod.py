@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import zipfile
+import py7zr
 from pathlib import Path
 from datetime import datetime
 
@@ -23,7 +24,7 @@ from textual.widgets import (
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 MANIFEST_FILE = Path.home() / ".config" / "choomod" / "manifest.json"
 
 # Known CP2077 install locations to scan
@@ -601,12 +602,13 @@ class InstallPreviewModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="modal-box-wide"):
             yield Label(f"Install: {self._zip_name}", id="modal-title")
-            yield Static(format_plan_summary(self._plan), id="modal-body")
-            if self._conflicts:
-                conflict_lines = ["[red]⚠ Conflicts detected:[/red]"]
-                for c in self._conflicts:
-                    conflict_lines.append(f"  [red]{c['file']}[/red] already owned by [yellow]{c['owned_by']}[/yellow]")
-                yield Static("\n".join(conflict_lines), id="modal-body")
+            with ScrollableContainer(id="modal-scroll"):
+                yield Static(format_plan_summary(self._plan), id="modal-plan")
+                if self._conflicts:
+                    conflict_lines = ["[red]⚠ Conflicts detected:[/red]"]
+                    for c in self._conflicts:
+                        conflict_lines.append(f"  [red]{c['file']}[/red] already owned by [yellow]{c['owned_by']}[/yellow]")
+                    yield Static("\n".join(conflict_lines), id="modal-conflicts")
             with Horizontal(id="modal-btns"):
                 can_install = bool(self._plan["auto"])
                 yield Button(
@@ -648,8 +650,8 @@ class InstallZipModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="modal-box"):
             yield Label("Install Mod from Zip", id="modal-title")
-            yield Label("Enter the full path to the mod .zip file:", id="modal-body")
-            yield Input(placeholder="/home/user/Downloads/mod.zip", id="zip-input")
+            yield Label("Enter the full path to the mod file (.zip, .7z, etc.):", id="modal-body")
+            yield Input(placeholder="/home/user/Downloads/mod.zip or mod.7z", id="zip-input")
             with Horizontal(id="modal-btns"):
                 yield Button("Inspect", id="inspect-btn", variant="primary")
                 yield Button("Cancel", id="cancel-btn")
@@ -752,10 +754,15 @@ ModalScreen { align: center middle; background: rgba(0,0,0,0.8); }
 }
 #modal-box-wide {
     background: #0f0f1a; border: tall #FF003C;
-    padding: 2 3; width: 90; min-height: 14; max-height: 40;
+    padding: 2 3; width: 90; min-height: 14; max-height: 50;
+}
+#modal-conflicts {
+    color: #FF003C;
+    margin-top: 1;
+    height: auto;
 }
 #modal-title { color: #FCE300; text-style: bold; margin-bottom: 1; }
-#modal-body { color: #c8c8d8; margin-bottom: 2; }
+#modal-body, #modal-plan { color: #c8c8d8; margin-bottom: 2; }
 #modal-btns { align: right middle; height: 3; }
 .field-label { color: #5a5a7a; margin-top: 1; }
 
@@ -836,7 +843,7 @@ class ChooMod(App):
                     yield DataTable(id="mod-table", cursor_type="row")
 
                     with Horizontal(id="action-bar"):
-                        yield Button("Install zip [I]", id="btn-install",   classes="action-btn -primary")
+                        yield Button("Install Mod [I]", id="btn-install",   classes="action-btn -primary")
                         yield Button("Toggle [T]",      id="btn-toggle",    classes="action-btn")
                         yield Button("Edit [E]",        id="btn-edit",      classes="action-btn")
                         yield Button("Uninstall [U]",   id="btn-uninstall", classes="action-btn -danger")

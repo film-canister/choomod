@@ -592,15 +592,21 @@ class InstallPreviewModal(ModalScreen):
     """Show the install plan and ask for confirmation before writing any files."""
     BINDINGS = [Binding("escape", "dismiss", "Cancel")]
 
-    def __init__(self, zip_name: str, plan: dict):
+    def __init__(self, zip_name: str, plan: dict, conflicts: list):
         super().__init__()
         self._zip_name = zip_name
         self._plan = plan
+        self._conflicts = conflicts
 
     def compose(self) -> ComposeResult:
         with Container(id="modal-box-wide"):
             yield Label(f"Install: {self._zip_name}", id="modal-title")
             yield Static(format_plan_summary(self._plan), id="modal-body")
+            if self._conflicts:
+                conflict_lines = ["[red]⚠ Conflicts detected:[/red]"]
+                for c in self._conflicts:
+                    conflict_lines.append(f"  [red]{c['file']}[/red] already owned by [yellow]{c['owned_by']}[/yellow]")
+                yield Static("\n".join(conflict_lines), id="modal-body")
             with Horizontal(id="modal-btns"):
                 can_install = bool(self._plan["auto"])
                 yield Button(
@@ -1053,6 +1059,7 @@ class ChooMod(App):
             # Step 2: inspect and show preview
             try:
                 plan = inspect_zip(zip_path)
+                conflicts = check_conflicts(plan, self.manifest, self.game_path)
             except Exception as e:
                 self.push_screen(MessageModal(f"Error reading zip:\n{e}", "Error"))
                 return
@@ -1076,7 +1083,7 @@ class ChooMod(App):
                     "Install Complete" if ok else "Install Failed"
                 ))
 
-            self.push_screen(InstallPreviewModal(zip_path.name, plan), got_confirmation)
+            self.push_screen(InstallPreviewModal(zip_path.name, plan, conflicts), got_confirmation)
 
         self.push_screen(InstallZipModal(), got_zip_path)
 

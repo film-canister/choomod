@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import zipfile
+import py7zr
 from pathlib import Path
 from datetime import datetime
 
@@ -649,8 +650,8 @@ class InstallZipModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="modal-box"):
             yield Label("Install Mod from Zip", id="modal-title")
-            yield Label("Enter the full path to the mod .zip file:", id="modal-body")
-            yield Input(placeholder="/home/user/Downloads/mod.zip", id="zip-input")
+            yield Label("Enter the full path to the mod file (.zip, .7z, etc.):", id="modal-body")
+            yield Input(placeholder="/home/user/Downloads/mod.zip or mod.7z", id="zip-input")
             with Horizontal(id="modal-btns"):
                 yield Button("Inspect", id="inspect-btn", variant="primary")
                 yield Button("Cancel", id="cancel-btn")
@@ -842,7 +843,7 @@ class ChooMod(App):
                     yield DataTable(id="mod-table", cursor_type="row")
 
                     with Horizontal(id="action-bar"):
-                        yield Button("Install zip [I]", id="btn-install",   classes="action-btn -primary")
+                        yield Button("Install Mod [I]", id="btn-install",   classes="action-btn -primary")
                         yield Button("Toggle [T]",      id="btn-toggle",    classes="action-btn")
                         yield Button("Edit [E]",        id="btn-edit",      classes="action-btn")
                         yield Button("Uninstall [U]",   id="btn-uninstall", classes="action-btn -danger")

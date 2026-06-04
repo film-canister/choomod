@@ -27,15 +27,18 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 
 - **Auto-detects your game install** — scans known Heroic and Steam paths, no manual setup required in most cases
 - **Mod installer with pre-install preview** — inspect what a mod archive contains and where every file will go before anything is written to disk. Supports `.zip` and `.7z` formats
+- **Transactional Installation** — includes a rollback mechanism. If an install fails, ChooMod automatically cleans up the mess so no "ghost files" are left behind.
 - **Conflict detection** — warns you if a mod you're installing overlaps with files already owned by another mod
 - **Separate dependencies tab** — shows install status for all required frameworks (CET, Red4Ext, Redscript, etc.) with GitHub and Nexus links
 - **Full subfolder preservation** — complex mods with Redscript, TweakXL, CET plugins, and ArchiveXL files all route correctly
 - **Manifest-tracked installs** — every file placed by ChooMod is recorded, making clean uninstalls possible
-- **Path-based manifest matching** — mods with multiple archive files are correctly identified and uninstalled cleanly
+- **Multi-archive grouping** — mods with multiple `.archive` files (like clothing sets) are grouped into a single entry in the mod list.
 - **Script/plugin-only mods visible** — mods with no `.archive` file (CET mods, Redscript-only mods) appear in the mod list
 - **Enable/disable toggling** — non-destructive, just renames files
+- **Mod Adoption** — bring unmanaged mods you installed manually into the ChooMod manifest for easy management.
+- **Integrity Verification** — quickly check if any managed mod files are missing from your game directory.
 - **Search and filter** — find mods by name or category
-- **Activity log** — timestamped record of everything ChooMod has done
+- **Activity log** — timestamped record of every action, including signed sessions on boot.
 
 ### Supported file types
 | Type | Destination |
@@ -57,7 +60,6 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 - Dependency resolution (it won't stop you installing a mod that needs Archive XL if you don't have it)
 - Load order management
 - Optional/variant file selection during install
-- Grouping multi-archive mods as a single entry in the mod list
 - Nexus Mods API integration
 
 These are all planned. This is a passion project in active development, not a finished product.
@@ -101,7 +103,9 @@ Launch the interactive terminal UI. Use keyboard shortcuts or mouse.
 | `I` / Install Mod button | Install a mod from a .zip or .7z file |
 | `T` | Toggle selected mod on/off |
 | `E` | Edit mod metadata (category, notes) |
+| `A` | Adopt unmanaged mod into manifest |
 | `U` | Uninstall a managed mod |
+| `V` | Verify integrity of all managed files |
 | `R` | Refresh mod list |
 | `/` | Focus search |
 | `Q` | Quit |
@@ -163,9 +167,9 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 ## Roadmap
 
 **Priority 1 — Core reliability**
-- [ ] Partial install rollback — clean up placed files if install fails mid-way
-- [ ] Adopt unmanaged mods into ChooMod's manifest
-- [ ] Group multi-archive mods as a single mod list entry
+- [x] Partial install rollback — clean up placed files if install fails mid-way
+- [x] Adopt unmanaged mods into ChooMod's manifest
+- [x] Group multi-archive mods as a single mod list entry
 
 **Priority 2 — Install experience**
 - [ ] Optional/variant file selection during install
@@ -210,6 +214,11 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 ## Changelog
 
 **v0.3.2**
+- Refactored UI into BootScreen and MainScreen for better flow and state management.
+- Implemented transactional installation with automatic rollback if extraction fails.
+- Added unified ArchiveHandler to support .zip and .7z formats interchangeably.
+- Added "Adopt" feature to take control of unmanaged mods on disk.
+- Added "Verify Integrity" to check for missing managed files.
 - Conflict detection wired into install preview — warns if files are already owned by another mod
 - `.7z` archive support added via `py7zr`
 - Routing logic refactored into shared `_route_entry()` helper

@@ -161,7 +161,6 @@ def detect_game() -> tuple[str | None, Path | None, str]:
 
 def _route_file(entry_path: str) -> str | None:
     """Determine the destination directory for a file based on FILE_ROUTES."""
-    p = Path(entry_path)
     for rule_type, pattern, dest in FILE_ROUTES:
         if rule_type == "suffix" and entry_path.endswith(pattern):
             return dest
@@ -175,15 +174,16 @@ def _get_relative_subpath(entry_path: str, destination: str) -> Path:
     Calculates the subpath relative to the route root to preserve folder structures.
     Example: r6/scripts/mod/script.reds + destination r6/scripts -> mod/script.reds
     """
-    p_parts = Path(entry_path).parts
+    p = Path(entry_path)
+    p_parts = p.parts
     dest_root_parts = Path(destination).parts
     last_dest_part = dest_root_parts[-1]
 
     try:
         idx = list(p_parts).index(last_dest_part)
-        return Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else Path(p_parts[-1])
+        return Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else Path(p.name)
     except ValueError:
-        return Path(p_parts[-1])
+        return Path(p.name)
 
 
 class ArchiveHandler:
@@ -213,7 +213,6 @@ class ArchiveHandler:
             # Returns a BytesIO object for consistency with zipfile.open()
             return list(self.archive.read(targets=[name]).values())[0]
         return self.archive.open(name)
-
 
 
 def get_mod_dir(game_path: Path) -> Path:
@@ -274,34 +273,20 @@ def inspect_zip(zip_path: Path) -> dict:
 
     with ArchiveHandler(zip_path) as zf:
         for entry in zf.get_entries():
-
             # skip folder entries ending in /
             if entry.endswith("/"):
                 continue
 
             p = Path(entry)
-
-            # ── Skip readmes, images, etc ──────────────────────────────────
-            # p.suffix gives the file extension e.g. ".txt"
-            # We check the full name too for files like "mod.archive.xl"
-            # which have a compound extension
             if p.suffix.lower() in SKIP_EXTENSIONS:
                 plan["skip"].append(entry)
                 continue
 
             destination = _route_file(entry)
 
-            # ── Check for ambiguity ────────────────────────────────────────
-            # p.parts splits a path into its components.
-            # e.g. Path("Optional/Main/mod.archive").parts
-            #   -> ('Optional', 'Main', 'mod.archive')
-            # We lowercase each part and check against our keyword set.
             parts_lower = {part.lower() for part in p.parts}
             is_ambiguous = bool(parts_lower & ambiguous_keywords)
-            # The & operator on sets = intersection.
-            # If any part matches any keyword, is_ambiguous = True.
 
-            # ── Sort into buckets ──────────────────────────────────────────
             if destination and not is_ambiguous:
                 plan["auto"].append((entry, destination))
             elif destination and is_ambiguous:
@@ -311,18 +296,11 @@ def inspect_zip(zip_path: Path) -> dict:
 
     return plan
 
-
 def format_plan_summary(plan: dict) -> str:
-    """
-    Turn an install plan into a human-readable summary string.
-    Used to show the user what will happen before we do it.
-    """
     lines = []
-
     if plan["auto"]:
         lines.append(f"[green]✓ Auto-install ({len(plan['auto'])} files):[/green]")
         for entry, dest in plan["auto"]:
-            # Just show filename and destination, not the full zip path
             lines.append(f"  {Path(entry).name}  →  {dest}")
 
     if plan["ambiguous"]:
@@ -345,7 +323,6 @@ def format_plan_summary(plan: dict) -> str:
 
 def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
     conflicts = []
-
     for zip_entry, destination in plan["auto"]:
         relative_subpath = _get_relative_subpath(zip_entry, destination)
         full_dest = str(game_path / destination / relative_subpath)
@@ -691,7 +668,6 @@ class EditModModal(ModalScreen):
         else:
             self.dismiss(None)
 
-# ─── Boot Screen ──────────────────────────────────────────────────────────────
 
 class BootScreen(Screen):
     """
@@ -888,11 +864,13 @@ Button.-primary { background: #FF003C; border: tall #FF003C; color: white; }
 
 class MainScreen(Screen):
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
+        Binding("i", "do_install_zip", "Install"),
         Binding("t", "toggle_selected", "Toggle"),
         Binding("e", "edit_selected", "Edit"),
+        Binding("a", "adopt_selected", "Adopt"),
         Binding("u", "uninstall_selected", "Uninstall"),
+        Binding("v", "verify_integrity", "Verify"),
         Binding("/", "focus_search", "Search"),
     ]
 
@@ -916,6 +894,7 @@ class MainScreen(Screen):
             self.mods = scan_mods(self.game_path, self.manifest)
 
         self._add_log(self.detect_msg, "ok" if self.game_path else "warn")
+        self._add_log(f"SESSION SIGNED // v{APP_VERSION} // {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "ok")
 
     def _add_log(self, msg: str, level: str = "ok"):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -948,10 +927,12 @@ class MainScreen(Screen):
                     yield DataTable(id="mod-table", cursor_type="row")
 
                     with Horizontal(id="action-bar"):
-                        yield Button("Install Mod [I]", id="btn-install",   classes="action-btn -primary")
+                        yield Button("Install [I]",     id="btn-install",   classes="action-btn -primary")
                         yield Button("Toggle [T]",      id="btn-toggle",    classes="action-btn")
                         yield Button("Edit [E]",        id="btn-edit",      classes="action-btn")
+                        yield Button("Adopt [A]",       id="btn-adopt",     classes="action-btn")
                         yield Button("Uninstall [U]",   id="btn-uninstall", classes="action-btn -danger")
+                        yield Button("Verify [V]",      id="btn-verify",    classes="action-btn")
                         yield Button("Refresh [R]",     id="btn-refresh",   classes="action-btn")
                         yield Button("Set Game Path",   id="btn-setpath",   classes="action-btn")
 
@@ -1076,9 +1057,11 @@ class MainScreen(Screen):
         actions = {
             "btn-toggle":    self.action_toggle_selected,
             "btn-edit":      self.action_edit_selected,
+            "btn-adopt":     self.action_adopt_selected,
+            "btn-verify":    self.action_verify_integrity,
             "btn-refresh":   self.action_refresh,
             "btn-setpath":   self._do_set_path,
-            "btn-install":   self._do_install_zip,
+            "btn-install":   self.action_do_install_zip,
             "btn-uninstall": self.action_uninstall_selected,
         }
         if bid in actions:
@@ -1121,6 +1104,54 @@ class MainScreen(Screen):
 
         self.app.push_screen(EditModModal(mod), handle)
 
+    def action_adopt_selected(self):
+        """Bring an unmanaged .archive mod into the manifest."""
+        mod = self._get_selected_mod()
+        if not mod:
+            return
+        if mod["managed"]:
+            self.app.push_screen(MessageModal("This mod is already managed.", "Info"))
+            return
+
+        mod_name = mod["name"]
+        file_path = mod["file"]
+        
+        self.manifest.setdefault("mods", {})[mod_name] = {
+            "installed_files": [file_path],
+            "category": "Unmanaged",
+            "notes": "Adopted unmanaged mod",
+            "added": datetime.now().strftime("%Y-%m-%d"),
+            "source_zip": "Adopted",
+            "enabled": mod["enabled"],
+        }
+        save_manifest(self.manifest)
+        self._add_log(f"Adopted '{mod_name}' into manifest.", "ok")
+        self.action_refresh()
+
+    def action_verify_integrity(self):
+        """Check if all managed files exist on disk."""
+        if not self.game_path:
+            return
+            
+        missing = []
+        total = 0
+        for mod_name, data in self.manifest.get("mods", {}).items():
+            for f_path in data.get("installed_files", []):
+                total += 1
+                p = Path(f_path)
+                if not p.exists() and not Path(str(p) + ".disabled").exists():
+                    missing.append(f"{mod_name}: {Path(f_path).name}")
+        
+        if not missing:
+            self.app.push_screen(MessageModal(f"Verified {total} files. All systems nominal.", "Integrity Check"))
+            self._add_log("Integrity check passed.", "ok")
+        else:
+            msg = f"Found {len(missing)} missing files!\n\n" + "\n".join(missing[:10])
+            if len(missing) > 10:
+                msg += f"\n...and {len(missing)-10} more."
+            self.app.push_screen(MessageModal(msg, "Integrity Warning"))
+            self._add_log(f"Integrity check failed: {len(missing)} files missing.", "err")
+
     def action_uninstall_selected(self):
         mod = self._get_selected_mod()
         if not mod:
@@ -1152,7 +1183,7 @@ class MainScreen(Screen):
     # The user sees exactly what will happen before anything is written.
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _do_install_zip(self):
+    def action_do_install_zip(self):
         if not self.game_path:
             self.app.push_screen(MessageModal("No game path set. Use 'Set Game Path' first.", "Error"))
             return
@@ -1255,21 +1286,10 @@ class ChooMod(App):
 
         # Install and start the flow
         self.install_screen(MainScreen(), name="main")
-        self.push_screen(BootScreen(launcher, str(game_path) if game_path else None))
+        self.app.push_screen(BootScreen(launcher, str(game_path) if game_path else None))
 
     def action_quit(self) -> None:
         self.exit()
-
-    def _refresh_log_tab(self):
-        try:
-            container = self.query_one("#log-container", ScrollableContainer)
-            container.remove_children()
-            for text, level in self.log_lines[-50:]:
-                container.mount(Static(text, classes=f"log-line -{level}"))
-            container.scroll_end(animate=False)
-        except Exception:
-            pass
-
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 

@@ -55,41 +55,41 @@ SEARCH_PATHS = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 FILE_ROUTES = [
-    # (rule_type, pattern,                       destination)
+    # (rule_type, pattern,                       destination,                required_framework)
 
     # ArchiveXL extension files — must come before generic .archive rule
-    ("suffix", ".archive.xl",                    "archive/pc/mod"),
+    ("suffix", ".archive.xl",                    "archive/pc/mod",           "ArchiveXL"),
 
     # Standard mod archives
-    ("suffix", ".archive",                       "archive/pc/mod"),
+    ("suffix", ".archive",                       "archive/pc/mod",           None),
 
     # Red4Ext plugin folders — must come before r6/scripts rule
     # to catch .reds files that live inside red4ext/plugins/
-    ("path", "red4ext/plugins",                 "red4ext/plugins"),
+    ("path", "red4ext/plugins",                 "red4ext/plugins",          "Red4Ext"),
 
     # Redscript source files
-    ("path",   "r6/scripts",                     "r6/scripts"),
+    ("path",   "r6/scripts",                     "r6/scripts",               "Redscript"),
 
     # TweakXL yaml patches
-    ("path",   "r6/tweaks",                      "r6/tweaks"),
+    ("path",   "r6/tweaks",                      "r6/tweaks",                "TweakXL"),
 
     # User config / hints (toml, ini etc)
-    ("path",   "r6/config",                      "r6/config"),
+    ("path",   "r6/config",                      "r6/config",                None),
 
     # Input bindings
-    ("path",   "r6/input",                       "r6/input"),
+    ("path",   "r6/input",                       "r6/input",                 None),
 
     # Engine config files
-    ("path", "engine/config", "engine/config"),
+    ("path", "engine/config", "engine/config",          None),
 
     # Redscript cache
-    ("path", "r6/cache", "r6/cache"),
+    ("path", "r6/cache", "r6/cache",                None),
 
     # Cyber Engine Tweaks mods (lua scripts)
-    ("path",   "bin/x64/plugins/cyber_engine_tweaks", "bin/x64/plugins/cyber_engine_tweaks"),
+    ("path",   "bin/x64/plugins/cyber_engine_tweaks", "bin/x64/plugins/cyber_engine_tweaks", "Cyber Engine Tweaks"),
 
     # Red4Ext DLLs and plugins
-    ("path",   "bin/x64",                        "bin/x64"),
+    ("path",   "bin/x64",                        "bin/x64",                  "Red4Ext"),
 ]
 
 FRAMEWORK_MODS = [
@@ -159,14 +159,14 @@ def detect_game() -> tuple[str | None, Path | None, str]:
     return None, None, "Game not found. Set path manually in Settings."
 
 
-def _route_file(entry_path: str) -> str | None:
-    """Determine the destination directory for a file based on FILE_ROUTES."""
-    for rule_type, pattern, dest in FILE_ROUTES:
+def _route_file(entry_path: str) -> tuple[str | None, str | None]:
+    """Determine the destination directory and framework requirement for a file."""
+    for rule_type, pattern, dest, req in FILE_ROUTES:
         if rule_type == "suffix" and entry_path.endswith(pattern):
-            return dest
+            return dest, req
         elif rule_type == "path" and pattern in entry_path:
-            return dest
-    return None
+            return dest, req
+    return None, None
 
 
 def _get_relative_subpath(entry_path: str, destination: str) -> Path:
@@ -262,9 +262,10 @@ def inspect_zip(zip_path: Path) -> dict:
             "ambiguous": [(zip_entry, destination_dir), ...],
             "unknown":   [zip_entry, ...],
             "skip":      [zip_entry, ...],
+            "requirements": set(),
         }
     """
-    plan = {"auto": [], "ambiguous": [], "unknown": [], "skip": []}
+    plan = {"auto": [], "ambiguous": [], "unknown": [], "skip": [], "requirements": set()}
 
     # Keywords that suggest a file is optional or a variant.
     # If a file lives inside a folder with one of these names,
@@ -282,13 +283,15 @@ def inspect_zip(zip_path: Path) -> dict:
                 plan["skip"].append(entry)
                 continue
 
-            destination = _route_file(entry)
+            destination, requirement = _route_file(entry)
 
             parts_lower = {part.lower() for part in p.parts}
             is_ambiguous = bool(parts_lower & ambiguous_keywords)
 
             if destination and not is_ambiguous:
                 plan["auto"].append((entry, destination))
+                if requirement:
+                    plan["requirements"].add(requirement)
             elif destination and is_ambiguous:
                 plan["ambiguous"].append((entry, destination))
             else:
@@ -334,6 +337,18 @@ def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
             })
 
     return conflicts
+
+def check_dependencies(plan: dict, game_path: Path) -> list[str]:
+    """Compare plan requirements against installed frameworks."""
+    reqs = plan.get("requirements", set())
+    if not reqs:
+        return []
+
+    frameworks = check_frameworks(game_path)
+    # Create a lookup for quick status checking
+    status_map = {fw["name"]: fw["installed"] for fw in frameworks}
+    
+    return [req for req in reqs if not status_map.get(req, False)]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ZIP INSTALLER
@@ -569,17 +584,23 @@ class InstallPreviewModal(ModalScreen):
     """Show the install plan and ask for confirmation before writing any files."""
     BINDINGS = [Binding("escape", "dismiss", "Cancel")]
 
-    def __init__(self, zip_name: str, plan: dict, conflicts: list):
+    def __init__(self, zip_name: str, plan: dict, conflicts: list, missing_deps: list):
         super().__init__()
         self._zip_name = zip_name
         self._plan = plan
         self._conflicts = conflicts
+        self._missing_deps = missing_deps
 
     def compose(self) -> ComposeResult:
         with Container(id="modal-box-wide"):
             yield Label(f"Install: {self._zip_name}", id="modal-title")
             with ScrollableContainer(id="modal-scroll"):
                 yield Static(format_plan_summary(self._plan), id="modal-plan")
+                if self._missing_deps:
+                    dep_lines = ["[yellow]⚠ Missing Dependencies:[/yellow]"]
+                    for dep in self._missing_deps:
+                        dep_lines.append(f"  [yellow]• {dep}[/yellow] is required for some files")
+                    yield Static("\n".join(dep_lines), id="modal-deps")
                 if self._conflicts:
                     conflict_lines = ["[red]⚠ Conflicts detected:[/red]"]
                     for c in self._conflicts:
@@ -841,6 +862,11 @@ ModalScreen { align: center middle; background: rgba(0,0,0,0.8); }
 }
 #modal-conflicts {
     color: #FF003C;
+    margin-top: 1;
+    height: auto;
+}
+#modal-deps {
+    color: #FCE300;
     margin-top: 1;
     height: auto;
 }
@@ -1204,6 +1230,7 @@ class MainScreen(Screen):
             try:
                 plan = inspect_zip(zip_path)
                 conflicts = check_conflicts(plan, self.manifest, self.game_path)
+                missing_deps = check_dependencies(plan, self.game_path)
             except Exception as e:
                 self.app.push_screen(MessageModal(f"Error reading zip:\n{e}", "Error"))
                 return
@@ -1227,7 +1254,10 @@ class MainScreen(Screen):
                     "Install Complete" if ok else "Install Failed"
                 ))
 
-            self.app.push_screen(InstallPreviewModal(zip_path.name, plan, conflicts), got_confirmation)
+            self.app.push_screen(
+                InstallPreviewModal(zip_path.name, plan, conflicts, missing_deps),
+                got_confirmation
+            )
 
         self.app.push_screen(InstallZipModal(), got_zip_path)
 

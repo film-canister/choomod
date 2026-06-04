@@ -386,23 +386,28 @@ def install_from_plan(
     Returns (success, message, list_of_installed_file_paths).
     """
     installed_files = []
-    errors = []
-    done = 0
     total = len(plan["auto"])
 
-    with ArchiveHandler(zip_path) as zf:
-        for zip_entry, destination in plan["auto"]:
-            relative_subpath = _get_relative_subpath(zip_entry, destination)
-            dest_path = game_path / destination / relative_subpath
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with ArchiveHandler(zip_path) as zf:
+            for zip_entry, destination in plan["auto"]:
+                relative_subpath = _get_relative_subpath(zip_entry, destination)
+                dest_path = game_path / destination / relative_subpath
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-            try:
+                # Extract and write the file
                 with zf.open_entry(zip_entry) as src, open(dest_path, "wb") as dst:
                     shutil.copyfileobj(src, dst)
+                
                 installed_files.append(str(dest_path))
-                done += 1
-            except Exception as e:
-                errors.append(f"{zip_entry}: {e}")
+    except Exception as e:
+        # ROLLBACK: If any file fails, delete everything we installed so far
+        for file_to_undo in installed_files:
+            p_to_undo = Path(file_to_undo)
+            if p_to_undo.exists():
+                p_to_undo.unlink()
+        
+        return False, f"Install failed: {e}. Rollback complete.", []
 
     if not installed_files:
         return False, "No files were installed.", []
@@ -422,10 +427,7 @@ def install_from_plan(
     }
     save_manifest(manifest)
 
-    msg = f"Installed {len(installed_files)} files"
-    if errors:
-        msg += f" ({len(errors)} errors: {'; '.join(errors)})"
-    return True, msg, installed_files
+    return True, f"Successfully installed {len(installed_files)} files.", installed_files
 
 
 # ─────────────────────────────────────────────────────────────────────────────

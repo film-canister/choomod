@@ -865,9 +865,12 @@ Button.-primary { background: #FF003C; border: tall #FF003C; color: white; }
 class MainScreen(Screen):
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
+        Binding("i", "do_install_zip", "Install"),
         Binding("t", "toggle_selected", "Toggle"),
         Binding("e", "edit_selected", "Edit"),
+        Binding("a", "adopt_selected", "Adopt"),
         Binding("u", "uninstall_selected", "Uninstall"),
+        Binding("v", "verify_integrity", "Verify"),
         Binding("/", "focus_search", "Search"),
     ]
 

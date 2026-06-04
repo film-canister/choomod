@@ -161,7 +161,6 @@ def detect_game() -> tuple[str | None, Path | None, str]:
 
 def _route_file(entry_path: str) -> str | None:
     """Determine the destination directory for a file based on FILE_ROUTES."""
-    p = Path(entry_path)
     for rule_type, pattern, dest in FILE_ROUTES:
         if rule_type == "suffix" and entry_path.endswith(pattern):
             return dest
@@ -175,15 +174,16 @@ def _get_relative_subpath(entry_path: str, destination: str) -> Path:
     Calculates the subpath relative to the route root to preserve folder structures.
     Example: r6/scripts/mod/script.reds + destination r6/scripts -> mod/script.reds
     """
-    p_parts = Path(entry_path).parts
+    p = Path(entry_path)
+    p_parts = p.parts
     dest_root_parts = Path(destination).parts
     last_dest_part = dest_root_parts[-1]
 
     try:
         idx = list(p_parts).index(last_dest_part)
-        return Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else Path(p_parts[-1])
+        return Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else Path(p.name)
     except ValueError:
-        return Path(p_parts[-1])
+        return Path(p.name)
 
 
 class ArchiveHandler:
@@ -213,7 +213,6 @@ class ArchiveHandler:
             # Returns a BytesIO object for consistency with zipfile.open()
             return list(self.archive.read(targets=[name]).values())[0]
         return self.archive.open(name)
-
 
 
 def get_mod_dir(game_path: Path) -> Path:
@@ -274,34 +273,20 @@ def inspect_zip(zip_path: Path) -> dict:
 
     with ArchiveHandler(zip_path) as zf:
         for entry in zf.get_entries():
-
             # skip folder entries ending in /
             if entry.endswith("/"):
                 continue
 
             p = Path(entry)
-
-            # ── Skip readmes, images, etc ──────────────────────────────────
-            # p.suffix gives the file extension e.g. ".txt"
-            # We check the full name too for files like "mod.archive.xl"
-            # which have a compound extension
             if p.suffix.lower() in SKIP_EXTENSIONS:
                 plan["skip"].append(entry)
                 continue
 
             destination = _route_file(entry)
 
-            # ── Check for ambiguity ────────────────────────────────────────
-            # p.parts splits a path into its components.
-            # e.g. Path("Optional/Main/mod.archive").parts
-            #   -> ('Optional', 'Main', 'mod.archive')
-            # We lowercase each part and check against our keyword set.
             parts_lower = {part.lower() for part in p.parts}
             is_ambiguous = bool(parts_lower & ambiguous_keywords)
-            # The & operator on sets = intersection.
-            # If any part matches any keyword, is_ambiguous = True.
 
-            # ── Sort into buckets ──────────────────────────────────────────
             if destination and not is_ambiguous:
                 plan["auto"].append((entry, destination))
             elif destination and is_ambiguous:
@@ -311,18 +296,11 @@ def inspect_zip(zip_path: Path) -> dict:
 
     return plan
 
-
 def format_plan_summary(plan: dict) -> str:
-    """
-    Turn an install plan into a human-readable summary string.
-    Used to show the user what will happen before we do it.
-    """
     lines = []
-
     if plan["auto"]:
         lines.append(f"[green]✓ Auto-install ({len(plan['auto'])} files):[/green]")
         for entry, dest in plan["auto"]:
-            # Just show filename and destination, not the full zip path
             lines.append(f"  {Path(entry).name}  →  {dest}")
 
     if plan["ambiguous"]:
@@ -345,7 +323,6 @@ def format_plan_summary(plan: dict) -> str:
 
 def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
     conflicts = []
-
     for zip_entry, destination in plan["auto"]:
         relative_subpath = _get_relative_subpath(zip_entry, destination)
         full_dest = str(game_path / destination / relative_subpath)
@@ -691,7 +668,6 @@ class EditModModal(ModalScreen):
         else:
             self.dismiss(None)
 
-# ─── Boot Screen ──────────────────────────────────────────────────────────────
 
 class BootScreen(Screen):
     """
@@ -888,7 +864,6 @@ Button.-primary { background: #FF003C; border: tall #FF003C; color: white; }
 
 class MainScreen(Screen):
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("t", "toggle_selected", "Toggle"),
         Binding("e", "edit_selected", "Edit"),
@@ -948,7 +923,7 @@ class MainScreen(Screen):
                     yield DataTable(id="mod-table", cursor_type="row")
 
                     with Horizontal(id="action-bar"):
-                        yield Button("Install Mod [I]", id="btn-install",   classes="action-btn -primary")
+                        yield Button("Install zip [I]", id="btn-install",   classes="action-btn -primary")
                         yield Button("Toggle [T]",      id="btn-toggle",    classes="action-btn")
                         yield Button("Edit [E]",        id="btn-edit",      classes="action-btn")
                         yield Button("Uninstall [U]",   id="btn-uninstall", classes="action-btn -danger")
@@ -1255,12 +1230,12 @@ class ChooMod(App):
 
         # Install and start the flow
         self.install_screen(MainScreen(), name="main")
-        self.push_screen(BootScreen(launcher, str(game_path) if game_path else None))
+        self.app.push_screen(BootScreen(launcher, str(game_path) if game_path else None))
 
     def action_quit(self) -> None:
         self.exit()
 
-    def _refresh_log_tab(self):
+
         try:
             container = self.query_one("#log-container", ScrollableContainer)
             container.remove_children()
@@ -1287,8 +1262,8 @@ def cli_install(src: str):
     if not zip_path.exists():
         print(f"Error: File not found: {zip_path}")
         return
-    if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
-        print(f"Error: Unsupported archive type: {zip_path}")
+    if not zipfile.is_zipfile(zip_path):
+        print(f"Error: Not a valid zip file: {zip_path}")
         return
 
     print(f"Inspecting {zip_path.name}...")

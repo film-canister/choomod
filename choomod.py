@@ -25,7 +25,7 @@ from textual.widgets import (
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.4.0-dev"
 MANIFEST_FILE = Path.home() / ".config" / "choomod" / "manifest.json"
 
 # Known CP2077 install locations to scan
@@ -59,6 +59,9 @@ FILE_ROUTES = [
 
     # ArchiveXL extension files — must come before generic .archive rule
     ("suffix", ".archive.xl",                    "archive/pc/mod",           "ArchiveXL"),
+
+    # ArchiveXL resource files
+    ("suffix", ".xl",                            "archive/pc/mod",           "ArchiveXL"),
 
     # Standard mod archives
     ("suffix", ".archive",                       "archive/pc/mod",           None),
@@ -187,10 +190,12 @@ def _get_relative_subpath(entry_path: str, destination: str) -> Path:
 
 
 class ArchiveHandler:
-    """Unified interface for zip and 7z archives."""
+    """Unified interface for zip, 7z, and rar archives."""
     def __init__(self, path: Path):
         self.path = path
-        self.is_7z = path.suffix.lower() == ".7z"
+        suffix = path.suffix.lower()
+        self.is_7z = suffix == ".7z"
+        self.is_rar = suffix == ".rar"
 
     def __enter__(self):
         if self.is_7z:
@@ -198,6 +203,12 @@ class ArchiveHandler:
                 self.archive = py7zr.SevenZipFile(self.path, mode='r')
             except NameError:
                 raise ImportError("The 'py7zr' library is required for .7z files. Install it with: pip install py7zr")
+        elif self.is_rar:
+            try:
+                import rarfile
+                self.archive = rarfile.RarFile(self.path, mode='r')
+            except ImportError:
+                raise ImportError("The 'rarfile' library is required for .rar files. Install it with: pip install rarfile\nNote: You may also need the 'unrar' package installed on your system.")
         else:
             self.archive = zipfile.ZipFile(self.path, 'r')
         return self
@@ -206,7 +217,7 @@ class ArchiveHandler:
         self.archive.close()
 
     def get_entries(self) -> list[str]:
-        return self.archive.getnames() if self.is_7z else self.archive.namelist()
+        return self.archive.getnames() if (self.is_7z or self.is_rar) else self.archive.namelist()
 
     def open_entry(self, name: str):
         if self.is_7z:
@@ -647,8 +658,8 @@ class InstallZipModal(ModalScreen):
     def compose(self) -> ComposeResult:
         with Container(id="modal-box"):
             yield Label("Install Mod from Zip", id="modal-title")
-            yield Label("Enter the full path to the mod file (.zip, .7z, etc.):", id="modal-body")
-            yield Input(placeholder="/home/user/Downloads/mod.zip or mod.7z", id="zip-input")
+            yield Label("Enter the full path to the mod file (.zip, .7z, .rar):", id="modal-body")
+            yield Input(placeholder="/path/to/mod.zip, .7z, or .rar", id="zip-input")
             with Horizontal(id="modal-btns"):
                 yield Button("Inspect", id="inspect-btn", variant="primary")
                 yield Button("Cancel", id="cancel-btn")
@@ -1221,9 +1232,10 @@ class MainScreen(Screen):
             if not zip_path.exists():
                 self.app.push_screen(MessageModal(f"File not found:\n{zip_path}", "Error"))
                 return
-            # Accept zip files or files ending in .7z
-            if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
-                self.app.push_screen(MessageModal("Unsupported archive type. Use .zip or .7z.", "Error"))
+            
+            # Accept zip files, 7z, or rar
+            if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() in [".7z", ".rar"]):
+                self.app.push_screen(MessageModal("Unsupported archive type. Use .zip, .7z, or .rar.", "Error"))
                 return
 
             # Step 2: inspect and show preview
@@ -1337,8 +1349,8 @@ def cli_install(src: str):
     if not zip_path.exists():
         print(f"Error: File not found: {zip_path}")
         return
-    if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
-        print(f"Error: Unsupported archive type: {zip_path}")
+    if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() in [".7z", ".rar"]):
+        print(f"Error: Unsupported archive type: {zip_path}. Use .zip, .7z, or .rar")
         return
 
     print(f"Inspecting {zip_path.name}...")

@@ -1,7 +1,7 @@
 # ChooMod
 ### A Cyberpunk 2077 mod manager for Linux — built for the terminal
 
-![Version](https://img.shields.io/badge/version-0.3.2-red) ![Platform](https://img.shields.io/badge/platform-Linux-blue) ![Python](https://img.shields.io/badge/python-3.10+-yellow)
+![Version](https://img.shields.io/badge/version-0.4.0--dev-red) ![Platform](https://img.shields.io/badge/platform-Linux-blue) ![Python](https://img.shields.io/badge/python-3.10+-yellow)
 
 ---
 
@@ -27,7 +27,7 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 
 - **Auto-detects your game install** — scans known Heroic and Steam paths, no manual setup required in most cases
 - **Mod installer with pre-install preview** — inspect what a mod archive contains and where every file will go before anything is written to disk. Supports `.zip` and `.7z` formats
-- **Transactional Installation** — includes a rollback mechanism. If an install fails, ChooMod automatically cleans up the mess so no "ghost files" are left behind.
+- **Transactional Installation** — includes a rollback mechanism. If an install fails, ChooMod automatically cleans up the mess so no "ghost files" are left behind. Supports `.zip`, `.7z`, and `.rar` (via `rarfile`).
 - **Conflict detection** — warns you if a mod you're installing overlaps with files already owned by another mod
 - **Separate dependencies tab** — shows install status for all required frameworks (CET, Red4Ext, Redscript, etc.) with GitHub and Nexus links
 - **Full subfolder preservation** — complex mods with Redscript, TweakXL, CET plugins, and ArchiveXL files all route correctly
@@ -44,6 +44,7 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 | Type | Destination |
 |------|-------------|
 | `.archive` | `archive/pc/mod/` |
+| `.xl` | `archive/pc/mod/` |
 | `.archive.xl` | `archive/pc/mod/` |
 | `.reds` | `r6/scripts/` |
 | `.toml` (config) | `r6/config/` |
@@ -170,6 +171,7 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - [x] Partial install rollback — clean up placed files if install fails mid-way
 - [x] Adopt unmanaged mods into ChooMod's manifest
 - [x] Group multi-archive mods as a single mod list entry
+- [x] Support for `.rar` and `.xl` file types
 
 **Priority 2 — Install experience**
 - [ ] Optional/variant file selection during install
@@ -183,6 +185,14 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - [ ] Nexus Mods API integration for version checking and dependency data
 - [ ] Investigate disabled mods still appearing in in-game Mod Settings menus
 
+**Future Exploration (Backlog)**
+- [ ] **Launch Option Helper**: Generate/Apply the required `WINEDLLOVERRIDES` strings for Steam/Heroic.
+- [ ] **Integrated Log Viewer**: View `redscript.log` and `CET` logs directly in the TUI for easier troubleshooting.
+- [ ] **Symlink Mode**: Option to install mods via symbolic links to keep the game directory pristine.
+- [ ] **Framework Update Checker**: Check GitHub API for the latest versions of CET, Red4Ext, etc.
+- [ ] **Export/Import Modlist**: Share your manifest or backup your setup as a simple JSON/text file.
+
+
 **Future — if there's demand**
 - [ ] Support for additional games
 - [ ] Windows support
@@ -194,6 +204,7 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 | Feature | Version |
 |---------|---------|
 | Basic mod list display | v0.1.0 |
+| Support for `.rar` and `.xl` file types | v0.4.0 |
 | Enable/disable toggling | v0.1.0 |
 | GOG/Heroic and Steam auto-detection | v0.1.0 |
 | Zip installer with pre-install preview | v0.2.0 |
@@ -212,6 +223,11 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 ---
 
 ## Changelog
+
+**v0.4.0 (Development)**
+- Added support for `.rar` archives via `rarfile` library.
+- Expanded `FILE_ROUTES` to support `.xl` resource files (ArchiveXL).
+- Updated `ArchiveHandler` to gracefully handle library requirements for specific formats.
 
 **v0.3.2**
 - Refactored UI into BootScreen and MainScreen for better flow and state management.

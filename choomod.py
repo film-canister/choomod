@@ -158,6 +158,50 @@ def detect_game() -> tuple[str | None, Path | None, str]:
     return None, None, "Game not found. Set path manually in Settings."
 
 
+def _route_file(entry_path: str) -> str | None:
+    """Determine the destination directory for a file based on FILE_ROUTES."""
+    p = Path(entry_path)
+    for rule_type, pattern, dest in FILE_ROUTES:
+        if rule_type == "suffix" and entry_path.endswith(pattern):
+            return dest
+        elif rule_type == "path" and pattern in entry_path:
+            return dest
+    return None
+
+
+def _get_relative_subpath(entry_path: str, destination: str) -> Path:
+    """
+    Calculates the subpath relative to the route root to preserve folder structures.
+    Example: r6/scripts/mod/script.reds + destination r6/scripts -> mod/script.reds
+    """
+    p_parts = Path(entry_path).parts
+    dest_root_parts = Path(destination).parts
+    last_dest_part = dest_root_parts[-1]
+
+    try:
+        idx = list(p_parts).index(last_dest_part)
+        return Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else Path(p_parts[-1])
+    except ValueError:
+        return Path(p_parts[-1])
+
+
+class ArchiveHandler:
+    """Unified interface for zip and 7z archives."""
+    def __init__(self, path: Path):
+        self.path = path
+        self.is_7z = path.suffix.lower() == ".7z"
+
+    def __enter__(self):
+        if self.is_7z:
+            self.archive = py7zr.SevenZipFile(self.path, mode='r')
+        else:
+            self.archive = zipfile.ZipFile(self.path, 'r')
+        return self.archive
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.archive.close()
+
+
 def get_mod_dir(game_path: Path) -> Path:
     return game_path / "archive" / "pc" / "mod"
 
@@ -214,11 +258,10 @@ def inspect_zip(zip_path: Path) -> dict:
     # we flag it as ambiguous instead of auto-installing.
     ambiguous_keywords = {"optional", "variant", "alternative", "alt", "choose", "option"}
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        for entry in zf.namelist():
+    with ArchiveHandler(zip_path) as zf:
+        for entry in zf.get_entries():
 
-            # zipfile includes folder entries ending in /  — skip those,
-            # we only care about actual files
+            # skip folder entries ending in /
             if entry.endswith("/"):
                 continue
 
@@ -232,22 +275,7 @@ def inspect_zip(zip_path: Path) -> dict:
                 plan["skip"].append(entry)
                 continue
 
-            # ── Route the file ─────────────────────────────────────────────
-            # Walk through FILE_ROUTES in order.
-            # For "suffix" rules: check if the filename ends with the pattern.
-            #   We use str(p).endswith() not p.suffix because .archive.xl
-            #   has a compound extension that p.suffix alone misses.
-            # For "path" rules: check if the pattern appears anywhere in the
-            #   full zip entry path. This handles cases where the mod author
-            #   wrapped everything in a top-level folder.
-            destination = None
-            for rule_type, pattern, dest in FILE_ROUTES:
-                if rule_type == "suffix" and str(p).endswith(pattern):
-                    destination = dest
-                    break
-                elif rule_type == "path" and pattern in entry:
-                    destination = dest
-                    break
+            destination = _route_file(entry)
 
             # ── Check for ambiguity ────────────────────────────────────────
             # p.parts splits a path into its components.
@@ -305,19 +333,9 @@ def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
     conflicts = []
 
     for zip_entry, destination in plan["auto"]:
-        p = Path(zip_entry)
-        dest_root_parts = Path(destination).parts
-        p_parts = p.parts
-        last_dest_part = dest_root_parts[-1]
-        try:
-            idx = list(p_parts).index(last_dest_part)
-            relative_subpath = Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else p.name
-        except ValueError:
-            relative_subpath = p.name
-
+        relative_subpath = _get_relative_subpath(zip_entry, destination)
         full_dest = str(game_path / destination / relative_subpath)
         existing_owner = find_manifest_entry(full_dest, manifest)
-
         if existing_owner:
             conflicts.append({
                 "file": p.name,
@@ -359,57 +377,25 @@ def install_from_plan(
     done = 0
     total = len(plan["auto"])
 
-    with zipfile.ZipFile(zip_path, "r") as zf:
+    with ArchiveHandler(zip_path) as zf:
         for zip_entry, destination in plan["auto"]:
-
-            p = Path(zip_entry)
-
-            # ── Preserve subfolder structure ───────────────────────────────
-            # Find where the route root appears in the zip path,
-            # then keep everything after it.
-            #
-            # Example:
-            #   zip_entry   = "r6/scripts/virtual-atelier-full/core/Classes.reds"
-            #   destination = "r6/scripts"
-            #   dest_parts  = ["r6", "scripts"]
-            #   We find "scripts" in p.parts, take everything after it.
-            #   Result: game_path / "r6/scripts" / "virtual-atelier-full/core/Classes.reds"
-            #
-            # For flat files like archive/pc/mod/mod.archive,
-            # there's no subfolder so we just use the filename.
-
-            dest_root_parts = Path(destination).parts
-            p_parts = p.parts
-
-            # Find the index where the destination root ends in the zip path
-            # We match on the last component of the destination root
-            last_dest_part = dest_root_parts[-1]
-            try:
-                idx = list(p_parts).index(last_dest_part)
-                # Everything after the match = the relative subpath
-                relative_subpath = Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else p.name
-            except ValueError:
-                # Pattern not found in parts — just use filename
-                relative_subpath = p.name
-
+            relative_subpath = _get_relative_subpath(zip_entry, destination)
             dest_path = game_path / destination / relative_subpath
-
-            # ── Create parent directories if needed ───────────────────────
-            # parents=True  = create the whole chain (like mkdir -p)
-            # exist_ok=True = don't error if folder already exists
             dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # ── Extract and write the file ────────────────────────
             try:
-                # when file is extracted, filename and destination are printed
-                print(f"  {p.name}  →  {destination}")
-                with zf.open(zip_entry) as src, open(dest_path, "wb") as dst:
-                    shutil.copyfileobj(src, dst)
+                if zip_path.suffix.lower() == ".7z":
+                    # py7zr extraction
+                    zf.extract(targets=[zip_entry], path=str(dest_path.parent))
+                else:
+                    with zf.open(zip_entry) as src, open(dest_path, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+
                 installed_files.append(str(dest_path))
                 done += 1
-                print(f"  ✓  [{done}/{total}]")
             except Exception as e:
-                errors.append(f"{p.name}: {e}")
+                errors.append(f"{zip_entry}: {e}")
+
     if not installed_files:
         return False, "No files were installed.", []
 
@@ -1145,8 +1131,8 @@ def cli_install(src: str):
     if not zip_path.exists():
         print(f"Error: File not found: {zip_path}")
         return
-    if not zipfile.is_zipfile(zip_path):
-        print(f"Error: Not a valid zip file: {zip_path}")
+    if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
+        print(f"Error: Unsupported archive type: {zip_path}")
         return
 
     print(f"Inspecting {zip_path.name}...")

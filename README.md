@@ -160,7 +160,7 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - [ ] Fix `.reds` and `.dll` routing when mod zips do not use the expected folder layout
 - [ ] Show managed script/tweak/Lua/CET-only mods in the mod list
 - [x] Group multi-archive mods as a single mod list entry
-- [ ] Adopt unmanaged mods into ChooMod's manifest
+- [x] Adopt unmanaged mods into ChooMod's manifest
 
 **Priority 2 — Install experience**
 - [ ] Optional/variant file selection during install
@@ -190,6 +190,8 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - Implemented transactional installation with automatic rollback on failure.
 - Fixed duplication bug in mod list for multi-archive mods.
 - Updated manifest matching to correctly identify .disabled files.
+- Added Integrity Verification to check for missing mod files.
+- Added Adoption feature to bring unmanaged mods into the manifest.
 
 **v0.3.1**
 - added tab menu showing install status for required mod dependencies (ex: CET, Red4Ext, etc.)

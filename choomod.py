@@ -891,6 +891,7 @@ class MainScreen(Screen):
             self.mods = scan_mods(self.game_path, self.manifest)
 
         self._add_log(self.detect_msg, "ok" if self.game_path else "warn")
+        self._add_log(f"SESSION SIGNED // v{APP_VERSION} // {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "ok")
 
     def _add_log(self, msg: str, level: str = "ok"):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -923,10 +924,12 @@ class MainScreen(Screen):
                     yield DataTable(id="mod-table", cursor_type="row")
 
                     with Horizontal(id="action-bar"):
-                        yield Button("Install zip [I]", id="btn-install",   classes="action-btn -primary")
+                        yield Button("Install [I]",     id="btn-install",   classes="action-btn -primary")
                         yield Button("Toggle [T]",      id="btn-toggle",    classes="action-btn")
                         yield Button("Edit [E]",        id="btn-edit",      classes="action-btn")
+                        yield Button("Adopt [A]",       id="btn-adopt",     classes="action-btn")
                         yield Button("Uninstall [U]",   id="btn-uninstall", classes="action-btn -danger")
+                        yield Button("Verify [V]",      id="btn-verify",    classes="action-btn")
                         yield Button("Refresh [R]",     id="btn-refresh",   classes="action-btn")
                         yield Button("Set Game Path",   id="btn-setpath",   classes="action-btn")
 
@@ -1051,9 +1054,11 @@ class MainScreen(Screen):
         actions = {
             "btn-toggle":    self.action_toggle_selected,
             "btn-edit":      self.action_edit_selected,
+            "btn-adopt":     self.action_adopt_selected,
+            "btn-verify":    self.action_verify_integrity,
             "btn-refresh":   self.action_refresh,
             "btn-setpath":   self._do_set_path,
-            "btn-install":   self._do_install_zip,
+            "btn-install":   self.action_do_install_zip,
             "btn-uninstall": self.action_uninstall_selected,
         }
         if bid in actions:
@@ -1096,6 +1101,54 @@ class MainScreen(Screen):
 
         self.app.push_screen(EditModModal(mod), handle)
 
+    def action_adopt_selected(self):
+        """Bring an unmanaged .archive mod into the manifest."""
+        mod = self._get_selected_mod()
+        if not mod:
+            return
+        if mod["managed"]:
+            self.app.push_screen(MessageModal("This mod is already managed.", "Info"))
+            return
+
+        mod_name = mod["name"]
+        file_path = mod["file"]
+        
+        self.manifest.setdefault("mods", {})[mod_name] = {
+            "installed_files": [file_path],
+            "category": "Unmanaged",
+            "notes": "Adopted unmanaged mod",
+            "added": datetime.now().strftime("%Y-%m-%d"),
+            "source_zip": "Adopted",
+            "enabled": mod["enabled"],
+        }
+        save_manifest(self.manifest)
+        self._add_log(f"Adopted '{mod_name}' into manifest.", "ok")
+        self.action_refresh()
+
+    def action_verify_integrity(self):
+        """Check if all managed files exist on disk."""
+        if not self.game_path:
+            return
+            
+        missing = []
+        total = 0
+        for mod_name, data in self.manifest.get("mods", {}).items():
+            for f_path in data.get("installed_files", []):
+                total += 1
+                p = Path(f_path)
+                if not p.exists() and not Path(str(p) + ".disabled").exists():
+                    missing.append(f"{mod_name}: {Path(f_path).name}")
+        
+        if not missing:
+            self.app.push_screen(MessageModal(f"Verified {total} files. All systems nominal.", "Integrity Check"))
+            self._add_log("Integrity check passed.", "ok")
+        else:
+            msg = f"Found {len(missing)} missing files!\n\n" + "\n".join(missing[:10])
+            if len(missing) > 10:
+                msg += f"\n...and {len(missing)-10} more."
+            self.app.push_screen(MessageModal(msg, "Integrity Warning"))
+            self._add_log(f"Integrity check failed: {len(missing)} files missing.", "err")
+
     def action_uninstall_selected(self):
         mod = self._get_selected_mod()
         if not mod:
@@ -1127,7 +1180,7 @@ class MainScreen(Screen):
     # The user sees exactly what will happen before anything is written.
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _do_install_zip(self):
+    def action_do_install_zip(self):
         if not self.game_path:
             self.app.push_screen(MessageModal("No game path set. Use 'Set Game Path' first.", "Error"))
             return
@@ -1235,17 +1288,6 @@ class ChooMod(App):
     def action_quit(self) -> None:
         self.exit()
 
-
-        try:
-            container = self.query_one("#log-container", ScrollableContainer)
-            container.remove_children()
-            for text, level in self.log_lines[-50:]:
-                container.mount(Static(text, classes=f"log-line -{level}"))
-            container.scroll_end(animate=False)
-        except Exception:
-            pass
-
-
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def cli_install(src: str):
@@ -1262,8 +1304,8 @@ def cli_install(src: str):
     if not zip_path.exists():
         print(f"Error: File not found: {zip_path}")
         return
-    if not zipfile.is_zipfile(zip_path):
-        print(f"Error: Not a valid zip file: {zip_path}")
+    if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
+        print(f"Error: Unsupported archive type: {zip_path}")
         return
 
     print(f"Inspecting {zip_path.name}...")

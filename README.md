@@ -23,17 +23,22 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 
 ---
 
-## What it can do (v0.3.1)
+## What it can do (v0.3.2)
 
 - **Auto-detects your game install** — scans known Heroic and Steam paths, no manual setup required in most cases
-- **Zip installer with pre-install preview** — inspect what a mod zip contains and where every file will go before anything is written to disk
-- **Separate tabs for dependencies** - Good to know what's missing if you're installing mods for the first time!
+- **Mod installer with pre-install preview** — inspect what a mod archive contains and where every file will go before anything is written to disk. Supports `.zip` and `.7z` formats
+- **Transactional Installation** — includes a rollback mechanism. If an install fails, ChooMod automatically cleans up the mess so no "ghost files" are left behind.
+- **Conflict detection** — warns you if a mod you're installing overlaps with files already owned by another mod
+- **Separate dependencies tab** — shows install status for all required frameworks (CET, Red4Ext, Redscript, etc.) with GitHub and Nexus links
 - **Full subfolder preservation** — complex mods with Redscript, TweakXL, CET plugins, and ArchiveXL files all route correctly
 - **Manifest-tracked installs** — every file placed by ChooMod is recorded, making clean uninstalls possible
-- **Path-based manifest matching** — mods with multiple archive files are correctly identified and uninstalled cleanly
+- **Multi-archive grouping** — mods with multiple `.archive` files (like clothing sets) are grouped into a single entry in the mod list.
+- **Script/plugin-only mods visible** — mods with no `.archive` file (CET mods, Redscript-only mods) appear in the mod list
 - **Enable/disable toggling** — non-destructive, just renames files
+- **Mod Adoption** — bring unmanaged mods you installed manually into the ChooMod manifest for easy management.
+- **Integrity Verification** — quickly check if any managed mod files are missing from your game directory.
 - **Search and filter** — find mods by name or category
-- **Activity log** — timestamped record of everything ChooMod has done
+- **Activity log** — timestamped record of every action, including signed sessions on boot.
 
 ### Supported file types
 | Type | Destination |
@@ -43,6 +48,7 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 | `.reds` | `r6/scripts/` |
 | `.toml` (config) | `r6/config/` |
 | `.xml` (input) | `r6/input/` |
+| `.ini` (engine config) | `engine/config/` |
 | TweakXL `.yaml` | `r6/tweaks/` |
 | CET Lua plugins | `bin/x64/plugins/cyber_engine_tweaks/` |
 | Red4Ext `.dll` | `bin/x64/` |
@@ -52,10 +58,8 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 ## What it can't do yet
 
 - Dependency resolution (it won't stop you installing a mod that needs Archive XL if you don't have it)
-- Conflict detection between mods
 - Load order management
 - Optional/variant file selection during install
-- Grouping multi-archive mods as a single entry in the mod list
 - Nexus Mods API integration
 
 These are all planned. This is a passion project in active development, not a finished product.
@@ -70,13 +74,18 @@ These are all planned. This is a passion project in active development, not a fi
 pip install textual --break-system-packages
 ```
 
+For `.7z` mod support (optional but recommended):
+```bash
+pip install py7zr --break-system-packages
+```
+
 Download `choomod.py` and run it:
 
 ```bash
 python3 choomod.py
 ```
 
-That's it. No build step, no dependencies beyond Textual.
+That's it. No build step, no other dependencies required.
 
 ---
 
@@ -91,10 +100,12 @@ Launch the interactive terminal UI. Use keyboard shortcuts or mouse.
 
 | Key | Action |
 |-----|--------|
-| `I` / Install zip button | Install a mod from a .zip file |
+| `I` / Install Mod button | Install a mod from a .zip or .7z file |
 | `T` | Toggle selected mod on/off |
 | `E` | Edit mod metadata (category, notes) |
+| `A` | Adopt unmanaged mod into manifest |
 | `U` | Uninstall a managed mod |
+| `V` | Verify integrity of all managed files |
 | `R` | Refresh mod list |
 | `/` | Focus search |
 | `Q` | Quit |
@@ -104,7 +115,7 @@ Launch the interactive terminal UI. Use keyboard shortcuts or mouse.
 python3 choomod.py install /path/to/mod.zip
 ```
 
-Inspects the zip, shows you the plan, asks for confirmation, installs.
+Inspects the archive, shows you the plan, asks for confirmation, installs.
 
 ---
 
@@ -135,8 +146,9 @@ CP2077 mods often require framework mods to function:
 - **[TweakXL](https://github.com/psiberx/cp2077-tweak-xl)** — required for `.yaml` tweaks
 - **[Cyber Engine Tweaks](https://github.com/maximegmd/CyberEngineTweaks)** — required for CET Lua mods
 - **[Red4Ext](https://github.com/wopss/RED4ext)** — required for `.dll` extension mods
+- **[Codeware](https://github.com/psiberx/cp2077-codeware)** — required by some advanced mods
 
-ChooMod will install these if you point it at their zips, but it won't warn you if a mod needs one and you don't have it — yet.
+ChooMod will install these if you point it at their archives, but it won't warn you if a mod needs one and you don't have it — yet.
 
 ---
 
@@ -148,59 +160,82 @@ The code was written with the help of **Claude (Anthropic)**, which handled the 
 
 ChooMod is strictly focused on Cyberpunk 2077 for now. Other games have their own mod managers. If this project takes off and there's demand, other games could follow — but that's not the current goal.
 
-If you're a developer and you want to contribute, that's genuinely welcome — especially around dependency resolution and conflict detection, which are the next big gaps.
+If you're a developer and you want to contribute, that's genuinely welcome — especially around dependency resolution and load order management, which are the next big gaps.
 
 ---
 
 ## Roadmap
 
 **Priority 1 — Core reliability**
-- [x] Conflict detection (two mods writing the same file)
-- [x] Partial install rollback (clean up files if install fails mid-way)
-- [ ] Fix `.reds` and `.dll` routing when mod zips do not use the expected folder layout
-- [ ] Show managed script/tweak/Lua/CET-only mods in the mod list
-- [x] Group multi-archive mods as a single mod list entry
+- [x] Partial install rollback — clean up placed files if install fails mid-way
 - [x] Adopt unmanaged mods into ChooMod's manifest
+- [x] Group multi-archive mods as a single mod list entry
 
 **Priority 2 — Install experience**
 - [ ] Optional/variant file selection during install
 - [ ] Dependency tagging and warnings
 - [ ] First-run setup checker — verify launch options are correctly set for Steam/Heroic
-- [ ] Pacman-style install progress output
-- [x] Support `.7z` mod archives, either through optional `py7zr` support or system `7z`
-- [x] Separate tab for framework/dependency mods (CET, Redscript, Red4Ext etc)
+- [ ] Batch install + pacman-style progress output
 
 **Priority 3 — Power features**
 - [ ] Load order management
 - [ ] Profiles (multiple mod loadouts)
-- [ ] Investigate disabled mods still appearing in in-game Mod Settings menus
 - [ ] Nexus Mods API integration for version checking and dependency data
+- [ ] Investigate disabled mods still appearing in in-game Mod Settings menus
 
-**Future — If there's demand**
+**Future — if there's demand**
 - [ ] Support for additional games
 - [ ] Windows support
 
 ---
 
+## Completed features
+
+| Feature | Version |
+|---------|---------|
+| Basic mod list display | v0.1.0 |
+| Enable/disable toggling | v0.1.0 |
+| GOG/Heroic and Steam auto-detection | v0.1.0 |
+| Zip installer with pre-install preview | v0.2.0 |
+| Full subfolder preservation for complex mods | v0.2.0 |
+| Manifest-tracked installs with clean uninstall | v0.2.0 |
+| Path-based manifest matching for multi-archive mods | v0.3.0 |
+| Manifest consolidation at `~/.config/choomod/` | v0.3.0 |
+| Dependencies tab with framework status indicators | v0.3.1 |
+| GitHub and Nexus links for each framework | v0.3.1 |
+| Conflict detection — warns before overwriting files | v0.3.2 |
+| `.7z` archive support via `py7zr` | v0.3.2 |
+| Script/plugin-only mods visible in mod list | v0.3.2 |
+| `red4ext/plugins` routing fix | v0.3.2 |
+| `engine/config` and `r6/cache` routing support | v0.3.2 |
+
+---
+
 ## Changelog
 
-**v0.3.1**
-- Refactored UI into BootScreen and MainScreen for better flow.
-- Added unified ArchiveHandler for .zip and .7z support.
-- Implemented transactional installation with automatic rollback on failure.
-- Fixed duplication bug in mod list for multi-archive mods.
-- Updated manifest matching to correctly identify .disabled files.
-- Added Integrity Verification to check for missing mod files.
-- Added Adoption feature to bring unmanaged mods into the manifest.
+**v0.3.2**
+- Refactored UI into BootScreen and MainScreen for better flow and state management.
+- Implemented transactional installation with automatic rollback if extraction fails.
+- Added unified ArchiveHandler to support .zip and .7z formats interchangeably.
+- Added "Adopt" feature to take control of unmanaged mods on disk.
+- Added "Verify Integrity" to check for missing managed files.
+- Conflict detection wired into install preview — warns if files are already owned by another mod
+- `.7z` archive support added via `py7zr`
+- Routing logic refactored into shared `_route_entry()` helper
+- `red4ext/plugins` rule added — script mods route correctly instead of landing in `r6/scripts`
+- `engine/config` and `r6/cache` added to FILE_ROUTES
+- Script/plugin-only mods now appear in mod list via manifest lookup
+- Duplicate entry bug fixed via path-based manifest key matching
+- UI: "Install Mod" replaces "Install zip" throughout
 
 **v0.3.1**
-- added tab menu showing install status for required mod dependencies (ex: CET, Red4Ext, etc.)
-- github and nexusmods links for each framework in order to maintain compatibility
+- Dependencies tab showing install status for CET, Red4Ext, Redscript, ArchiveXL, TweakXL, Codeware
+- GitHub and Nexus links for each framework
 
 **v0.3.0**
-- Path-based manifest matching — multi-archive mods now correctly identified and uninstalled
-- Manifest consolidation — single config location at `~/.config/choomod/`
-- Bug fix: manifest key now uses zip filename consistently
+- Path-based manifest matching — multi-archive mods correctly identified and uninstalled
+- Manifest consolidation — single config at `~/.config/choomod/`
+- Manifest key uses zip filename consistently
 
 **v0.2.0**
 - Zip installer with pre-install preview
@@ -215,4 +250,4 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ---
 
-*Choom is Night City slang for friend. Felt right.*
+*Choom is Night City slang for friend. Felt right.*g

@@ -192,7 +192,13 @@ class ArchiveHandler:
         self.is_7z = path.suffix.lower() == ".7z"
 
     def __enter__(self):
-        self.archive = py7zr.SevenZipFile(self.path, mode='r') if self.is_7z else zipfile.ZipFile(self.path, 'r')
+        if self.is_7z:
+            try:
+                self.archive = py7zr.SevenZipFile(self.path, mode='r')
+            except NameError:
+                raise ImportError("The 'py7zr' library is required for .7z files. Install it with: pip install py7zr")
+        else:
+            self.archive = zipfile.ZipFile(self.path, 'r')
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

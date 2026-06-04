@@ -192,14 +192,21 @@ class ArchiveHandler:
         self.is_7z = path.suffix.lower() == ".7z"
 
     def __enter__(self):
-        if self.is_7z:
-            self.archive = py7zr.SevenZipFile(self.path, mode='r')
-        else:
-            self.archive = zipfile.ZipFile(self.path, 'r')
-        return self.archive
+        self.archive = py7zr.SevenZipFile(self.path, mode='r') if self.is_7z else zipfile.ZipFile(self.path, 'r')
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.archive.close()
+
+    def get_entries(self) -> list[str]:
+        return self.archive.getnames() if self.is_7z else self.archive.namelist()
+
+    def open_entry(self, name: str):
+        if self.is_7z:
+            # Returns a BytesIO object for consistency with zipfile.open()
+            return list(self.archive.read(targets=[name]).values())[0]
+        return self.archive.open(name)
+
 
 
 def get_mod_dir(game_path: Path) -> Path:
@@ -338,7 +345,7 @@ def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
         existing_owner = find_manifest_entry(full_dest, manifest)
         if existing_owner:
             conflicts.append({
-                "file": p.name,
+                "file": Path(zip_entry).name,
                 "owned_by": existing_owner,
             })
 
@@ -384,13 +391,8 @@ def install_from_plan(
             dest_path.parent.mkdir(parents=True, exist_ok=True)
 
             try:
-                if zip_path.suffix.lower() == ".7z":
-                    # py7zr extraction
-                    zf.extract(targets=[zip_entry], path=str(dest_path.parent))
-                else:
-                    with zf.open(zip_entry) as src, open(dest_path, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-
+                with zf.open_entry(zip_entry) as src, open(dest_path, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
                 installed_files.append(str(dest_path))
                 done += 1
             except Exception as e:
@@ -1045,8 +1047,9 @@ class ChooMod(App):
             if not zip_path.exists():
                 self.push_screen(MessageModal(f"File not found:\n{zip_path}", "Error"))
                 return
-            if not zipfile.is_zipfile(zip_path):
-                self.push_screen(MessageModal("That doesn't look like a valid zip file.", "Error"))
+            # Accept zip files or files ending in .7z
+            if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
+                self.push_screen(MessageModal("Unsupported archive type. Use .zip or .7z.", "Error"))
                 return
 
             # Step 2: inspect and show preview

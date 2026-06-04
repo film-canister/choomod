@@ -5,6 +5,7 @@ Supports: GOG via Heroic, Steam via Proton
 """
 
 import json
+import asyncio
 import os
 import shutil
 import zipfile
@@ -16,7 +17,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
 from textual.reactive import reactive
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button, DataTable, Footer, Header, Input, Label,
     Static, Switch, TabbedContent, TabPane
@@ -449,18 +450,22 @@ def uninstall_mod(mod_name: str, manifest: dict) -> tuple[bool, str]:
 
     for file_str in files:
         p = Path(file_str)
-        try:
-            if p.exists():
-                p.unlink()      # unlink() deletes a file
-                removed += 1
-            # Clean up empty parent directories
-            # We try to remove parents up the tree, stopping when non-empty
+        # We check both the original path and the '.disabled' variant 
+        # to ensure toggled mods are still cleaned up.
+        targets = [p, Path(str(p) + ".disabled")]
+        
+        for target in targets:
             try:
-                p.parent.rmdir()    # only removes if empty
-            except OSError:
-                pass                # not empty — that's fine, leave it
-        except Exception as e:
-            errors.append(str(e))
+                if target.exists():
+                    target.unlink()
+                    removed += 1
+                    # Clean up empty parent directories
+                    try:
+                        target.parent.rmdir()
+                    except OSError:
+                        pass
+            except Exception as e:
+                errors.append(f"Failed to delete {target.name}: {e}")
 
     del manifest["mods"][mod_name]
     save_manifest(manifest)
@@ -473,11 +478,14 @@ def uninstall_mod(mod_name: str, manifest: dict) -> tuple[bool, str]:
 # ─── Mod scanning (for mods installed outside ChooMod) ───────────────────────
 
 def find_manifest_entry(file_path: str, manifest: dict):
+    # Normalize: if the file on disk is currently '.disabled', 
+    # we look for its original 'active' path in the manifest.
+    search_path = file_path.replace(".disabled", "")
+
     for mod_name, mod_data in manifest.get("mods", {}).items():
         for installed_file in mod_data.get("installed_files", []):
-            if installed_file == file_path:
+            if installed_file == search_path:
                 return mod_name
-    # nothing here, choom :(
     return None
 
 def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
@@ -486,55 +494,50 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
         return []
 
     mods = []
-    seen = set()
+    handled_manifest_keys = set()
     managed = manifest.get("mods", {})
 
-    for f in sorted(mod_dir.glob("*.archive")):
-        name = f.stem
-        seen.add(name)
+    # 1. Scan for all archive files (enabled and disabled)
+    archive_files = sorted(list(mod_dir.glob("*.archive")) + list(mod_dir.glob("*.archive.disabled")))
+
+    for f in archive_files:
         managed_key = find_manifest_entry(str(f), manifest)
-        meta = managed.get(managed_key, {}) if managed_key else {}
-        mods.append({
-            "name": name,
-            "file": str(f),
-            "enabled": True,
-            "size_kb": round(f.stat().st_size / 1024),
-            "category": meta.get("category", "Uncategorised"),
-            "notes": meta.get("notes", ""),
-            "added": meta.get("added", "Unknown"),
-            "managed": managed_key is not None,
-            "file_count": len(meta.get("installed_files", [])),
-        })
-
-    for f in sorted(mod_dir.glob("*.archive.disabled")):
-        name = f.name.replace(".archive.disabled", "")
-        if name in seen:
-            continue
-        managed_key = find_manifest_entry(str(f), manifest)
-        meta = managed.get(managed_key, {}) if managed_key else {}
-        mods.append({
-            "name": name,
-            "file": str(f),
-            "enabled": False,
-            "size_kb": round(f.stat().st_size / 1024),
-            "category": meta.get("category", "Uncategorised"),
-            "notes": meta.get("notes", ""),
-            "added": meta.get("added", "Unknown"),
-            "managed": managed_key is not None,
-            "file_count": len(meta.get("installed_files", [])),
-        })
-
-
-    already_listed = set()
-    for m in mods:
-        key = find_manifest_entry(m["file"], manifest)
-        if key:
-            already_listed.add(key)
+        
+        if managed_key:
+            # This file belongs to a mod we track in the manifest.
+            # We only add the entry once, even if it has multiple archives.
+            if managed_key not in handled_manifest_keys:
+                meta = managed[managed_key]
+                mods.append({
+                    "name": managed_key,
+                    "file": str(f),
+                    "enabled": not str(f).endswith(".disabled"),
+                    "size_kb": round(f.stat().st_size / 1024),
+                    "category": meta.get("category", "Uncategorised"),
+                    "notes": meta.get("notes", ""),
+                    "added": meta.get("added", "Unknown"),
+                    "managed": True,
+                    "file_count": len(meta.get("installed_files", [])),
+                })
+                handled_manifest_keys.add(managed_key)
         else:
-            already_listed.add(m["name"])
+            # This is an unmanaged mod file on disk.
+            name = f.name.replace(".archive.disabled", "").replace(".archive", "")
+            mods.append({
+                "name": name,
+                "file": str(f),
+                "enabled": not str(f).endswith(".disabled"),
+                "size_kb": round(f.stat().st_size / 1024),
+                "category": "Unmanaged",
+                "notes": "Drag-and-drop install",
+                "added": "Unknown",
+                "managed": False,
+                "file_count": 1,
+            })
 
-    for mod_name, mod_data in manifest.get("mods", {}).items():
-        if mod_name not in already_listed:
+    # 2. Add managed mods that have NO .archive files at all (CET, Redscript, etc.)
+    for mod_name, mod_data in managed.items():
+        if mod_name not in handled_manifest_keys:
             mods.append({
                 "name": mod_name,
                 "file": mod_data.get("source_zip", ""),
@@ -688,10 +691,118 @@ class EditModModal(ModalScreen):
         else:
             self.dismiss(None)
 
+# ─── Boot Screen ──────────────────────────────────────────────────────────────
+
+class BootScreen(Screen):
+    """
+    Cyberpunk-themed startup sequence.
+    Plays before the main app loads.
+    Press any key to skip.
+    """
+
+    BINDINGS = [Binding("space,enter,escape", "skip", "Skip")]
+
+    def __init__(self, launcher: str | None, game_path: str | None):
+        super().__init__()
+        self._launcher = launcher
+        self._game_path = game_path
+        self._skipped = False
+
+    def compose(self) -> ComposeResult:
+        with Container(id="boot-container"):
+            yield Static(self._logo(), id="boot-logo")
+            yield Vertical(id="boot-lines")
+            yield Static("  [dim]PRESS ANY KEY TO SKIP[/dim]", id="boot-skip-hint")
+
+    def _logo(self) -> str:
+        return (
+            f"  [yellow]╔══════╗[/yellow]\n"
+            f"  [yellow]║  CM  ║[/yellow]\n"
+            f"  [yellow]╠══════╣[/yellow]  [bold yellow]CHOOMOD[/bold yellow]\n"
+            f"  [yellow]║ v{APP_VERSION} ║[/yellow]  [dim]CP2077 Mod Manager // Linux[/dim]\n"
+            f"  [yellow]╚══════╝[/yellow]"
+        )
+
+    async def on_mount(self) -> None:
+        self.run_worker(self._boot_sequence(), exclusive=True)
+
+    async def _boot_sequence(self) -> None:
+        lines_container = self.query_one("#boot-lines", Vertical)
+
+        game_found = self._game_path is not None
+        launcher_str = self._launcher or "UNKNOWN"
+
+        boot_lines = [
+            ("  [cyan]> [/cyan] INITIALIZING CHOOMOD...", None, 0.15),
+            (
+                "  [cyan]> [/cyan] SCANNING FOR GAME INSTALLATION...",
+                f"[green][ {launcher_str.upper()} ][/green]" if game_found else "[red][ NOT FOUND ][/red]",
+                0.20,
+            ),
+            ("  [cyan]> [/cyan] LOADING MANIFEST...", "[green][ OK ][/green]", 0.15),
+            ("  [cyan]> [/cyan] CHECKING FRAMEWORK INTEGRITY...", "[green][ OK ][/green]", 0.20),
+            ("  [cyan]> [/cyan] ALL SYSTEMS NOMINAL.", None, 0.30),
+            ("", None, 0.10),
+            ("  [bold yellow]WELCOME BACK, CHOOM.[/bold yellow]", None, 0.60),
+        ]
+
+        for line_text, status, delay in boot_lines:
+            if self._skipped:
+                break
+            label = Static(line_text, classes="boot-line")
+            await lines_container.mount(label)
+            if status:
+                await asyncio.sleep(0.10)
+                if not self._skipped:
+                    label.update(f"{line_text}  {status}")
+            await asyncio.sleep(delay)
+
+        if not self._skipped:
+            await asyncio.sleep(0.4)
+        self._launch_main()
+
+    def _launch_main(self) -> None:
+        self.app.switch_screen("main")
+
+    def action_skip(self) -> None:
+        self._skipped = True
+        self._launch_main()
+
+    def on_key(self) -> None:
+        self.action_skip()
+
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 
 CSS = """
+#boot-container {
+    align: center middle;
+    height: 1fr;
+    background: #0a0a0f;
+    padding: 4 6;
+}
+
+#boot-logo {
+    color: #FCE300;
+    height: auto;
+    margin-bottom: 2;
+}
+
+#boot-lines {
+    height: auto;
+    min-height: 10;
+}
+
+.boot-line {
+    color: #c8c8d8;
+    height: auto;
+}
+
+#boot-skip-hint {
+    margin-top: 2;
+    color: #3a3a5a;
+}
+
 Screen { background: #0a0a0f; }
 Header { background: #0f0f1a; color: #FCE300; border-bottom: tall #FF003C; }
 Footer { background: #0f0f1a; border-top: tall #1e1e35; color: #5a5a7a; }
@@ -775,9 +886,7 @@ Button.-primary { background: #FF003C; border: tall #FF003C; color: white; }
 
 # ─── Main App ─────────────────────────────────────────────────────────────────
 
-class ChooMod(App):
-    TITLE = f"ChooMod v{APP_VERSION} // CP2077 Mod Manager"
-    CSS = CSS
+class MainScreen(Screen):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
@@ -987,7 +1096,7 @@ class ChooMod(App):
 
     def action_toggle_selected(self):
         if not self.game_path:
-            self.push_screen(MessageModal("No game path set.", "Error"))
+            self.app.push_screen(MessageModal("No game path set.", "Error"))
             return
         mod = self._get_selected_mod()
         if not mod:
@@ -1010,14 +1119,14 @@ class ChooMod(App):
                 self.action_refresh()
                 self._refresh_log_tab()
 
-        self.push_screen(EditModModal(mod), handle)
+        self.app.push_screen(EditModModal(mod), handle)
 
     def action_uninstall_selected(self):
         mod = self._get_selected_mod()
         if not mod:
             return
         if not mod["managed"]:
-            self.push_screen(MessageModal(
+            self.app.push_screen(MessageModal(
                 f"'{mod['name']}' was not installed by ChooMod,\n"
                 "so there's no file record to uninstall from.\n\n"
                 "Delete the .archive file manually from:\n"
@@ -1045,7 +1154,7 @@ class ChooMod(App):
 
     def _do_install_zip(self):
         if not self.game_path:
-            self.push_screen(MessageModal("No game path set. Use 'Set Game Path' first.", "Error"))
+            self.app.push_screen(MessageModal("No game path set. Use 'Set Game Path' first.", "Error"))
             return
 
         async def got_zip_path(zip_str):
@@ -1053,11 +1162,11 @@ class ChooMod(App):
                 return
             zip_path = Path(zip_str)
             if not zip_path.exists():
-                self.push_screen(MessageModal(f"File not found:\n{zip_path}", "Error"))
+                self.app.push_screen(MessageModal(f"File not found:\n{zip_path}", "Error"))
                 return
             # Accept zip files or files ending in .7z
             if not (zipfile.is_zipfile(zip_path) or zip_path.suffix.lower() == ".7z"):
-                self.push_screen(MessageModal("Unsupported archive type. Use .zip or .7z.", "Error"))
+                self.app.push_screen(MessageModal("Unsupported archive type. Use .zip or .7z.", "Error"))
                 return
 
             # Step 2: inspect and show preview
@@ -1065,7 +1174,7 @@ class ChooMod(App):
                 plan = inspect_zip(zip_path)
                 conflicts = check_conflicts(plan, self.manifest, self.game_path)
             except Exception as e:
-                self.push_screen(MessageModal(f"Error reading zip:\n{e}", "Error"))
+                self.app.push_screen(MessageModal(f"Error reading zip:\n{e}", "Error"))
                 return
 
             async def got_confirmation(confirmed):
@@ -1082,14 +1191,14 @@ class ChooMod(App):
                 self._add_log(f"{'Installed' if ok else 'Failed'} {zip_path.name}: {msg}", level)
                 self.action_refresh()
                 self._refresh_log_tab()
-                self.push_screen(MessageModal(
+                self.app.push_screen(MessageModal(
                     msg + (f"\n\n{len(files)} files placed." if ok else ""),
                     "Install Complete" if ok else "Install Failed"
                 ))
 
-            self.push_screen(InstallPreviewModal(zip_path.name, plan, conflicts), got_confirmation)
+            self.app.push_screen(InstallPreviewModal(zip_path.name, plan, conflicts), got_confirmation)
 
-        self.push_screen(InstallZipModal(), got_zip_path)
+        self.app.push_screen(InstallZipModal(), got_zip_path)
 
     def _do_set_path(self):
         async def handle(result):
@@ -1110,10 +1219,46 @@ class ChooMod(App):
                     self.query_one("#s-moddir",     Label).update(str(get_mod_dir(p)))
                     self._add_log(f"Game path set to {p}", "ok")
                 else:
-                    self.push_screen(MessageModal(f"Path does not exist:\n{p}", "Error"))
+                    self.app.push_screen(MessageModal(f"Path does not exist:\n{p}", "Error"))
                 self._refresh_log_tab()
 
-        self.push_screen(SetPathModal(), handle)
+        self.app.push_screen(SetPathModal(), handle)
+
+    def _refresh_log_tab(self):
+        try:
+            container = self.query_one("#log-container", ScrollableContainer)
+            container.remove_children()
+            for text, level in self.log_lines[-50:]:
+                container.mount(Static(text, classes=f"log-line -{level}"))
+            container.scroll_end(animate=False)
+        except Exception:
+            pass
+
+class ChooMod(App):
+    TITLE = f"ChooMod v{APP_VERSION} // CP2077 Mod Manager"
+    CSS = CSS
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def on_mount(self) -> None:
+        # Initialize core data for the boot screen
+        launcher, game_path, _ = detect_game()
+        
+        # Load manifest to check for path overrides
+        manifest = load_manifest()
+        if manifest.get("game_path"):
+            saved_path = Path(manifest["game_path"])
+            if saved_path.exists():
+                game_path = saved_path
+                launcher = manifest.get("launcher", "Manual")
+
+        # Install and start the flow
+        self.install_screen(MainScreen(), name="main")
+        self.push_screen(BootScreen(launcher, str(game_path) if game_path else None))
+
+    def action_quit(self) -> None:
+        self.exit()
 
     def _refresh_log_tab(self):
         try:

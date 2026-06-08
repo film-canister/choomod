@@ -25,7 +25,7 @@ from textual.widgets import (
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-APP_VERSION = "0.4.0-dev"
+APP_VERSION = "1.2.0-dev"
 MANIFEST_FILE = Path.home() / ".config" / "choomod" / "manifest.json"
 
 # Known CP2077 install locations to scan
@@ -37,6 +37,25 @@ SEARCH_PATHS = {
     "steam_flatpak":    Path.home() / ".var" / "app" / "com.valvesoftware.Steam" / "data" / "Steam" / "steamapps" / "common" / "Cyberpunk 2077",
     "heroic_flatpak":   Path.home() / ".var" / "app" / "com.heroicgameslauncher.hgl" / "config" / "heroic" / "GOG Games" / "Cyberpunk 2077",
 }
+
+def scan_heroic_config() -> Path | None:
+    """Try to find the game path by reading Heroic's installed games manifest."""
+    paths = [
+        Path.home() / ".config" / "heroic" / "gog_store" / "installed.json",
+        Path.home() / ".config" / "heroic" / "sideloaded_games" / "installed.json"
+    ]
+    for p in paths:
+        if p.exists():
+            try:
+                data = json.loads(p.read_text())
+                for game in data.get("installed", []):
+                    if "Cyberpunk 2077" in game.get("title", ""):
+                        install_path = Path(game.get("installPath", ""))
+                        if install_path.exists():
+                            return install_path
+            except Exception:
+                continue
+    return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FILE ROUTING TABLE
@@ -155,6 +174,12 @@ SKIP_EXTENSIONS = {".txt", ".md", ".png", ".jpg", ".jpeg", ".pdf", ".url", ".gif
 # ─── Detection ────────────────────────────────────────────────────────────────
 
 def detect_game() -> tuple[str | None, Path | None, str]:
+    # 1. Try Heroic config first (most accurate)
+    heroic_path = scan_heroic_config()
+    if heroic_path:
+        return "GOG (Heroic)", heroic_path, f"Detected via Heroic config at {heroic_path}"
+
+    # 2. Fall back to brute-force scanning
     for key, path in SEARCH_PATHS.items():
         if path.exists() and (path / "bin").exists():
             launcher = "GOG (Heroic)" if "heroic" in key or "gog" in key.lower() else "Steam"
@@ -487,16 +512,28 @@ def find_manifest_entry(file_path: str, manifest: dict):
 
     for mod_name, mod_data in manifest.get("mods", {}).items():
         for installed_file in mod_data.get("installed_files", []):
-            if installed_file == search_path:
+            # Match exact file path OR check if the installed file is inside this directory
+            if installed_file == search_path or installed_file.startswith(search_path + "/"):
                 return mod_name
     return None
 
 def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
+    """
+    Scans the game directory for mods.
+    1. Finds archives in archive/pc/mod (managed and unmanaged)
+    2. Finds unmanaged script/plugin folders in r6/scripts and red4ext/plugins
+    3. Adds managed mods from manifest that don't have archives
+    """
     mod_dir = get_mod_dir(game_path)
-    if not mod_dir.exists():
-        return []
-
     mods = []
+    
+    if not mod_dir.exists():
+        # Even if mod_dir is missing, we might have script mods or manifest entries
+        pass
+    else:
+        archive_files = sorted(list(mod_dir.glob("*.archive")) + list(mod_dir.glob("*.archive.disabled")))
+        # ... (rest of archive scanning logic)
+
     handled_manifest_keys = set()
     managed = manifest.get("mods", {})
 
@@ -504,7 +541,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
     archive_files = sorted(list(mod_dir.glob("*.archive")) + list(mod_dir.glob("*.archive.disabled")))
 
     for f in archive_files:
-        managed_key = find_manifest_entry(str(f), manifest)
+        managed_key = find_manifest_entry(str(f).replace(".disabled", ""), manifest)
         
         if managed_key:
             # This file belongs to a mod we track in the manifest.
@@ -538,6 +575,31 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                 "managed": False,
                 "file_count": 1,
             })
+            
+    # 1.5 Scan for unmanaged scripts and plugins (folders)
+    search_dirs = [
+        (game_path / "r6" / "scripts", "Unmanaged Script"),
+        (game_path / "red4ext" / "plugins", "Unmanaged Plugin")
+    ]
+    for root_dir, cat in search_dirs:
+        if root_dir.exists():
+            for item in root_dir.iterdir():
+                if item.is_dir() and not find_manifest_entry(str(item), manifest):
+                    # Check if it's already in our list (could be if it has an archive too)
+                    if any(m["name"] == item.name.replace(".disabled", "") for m in mods):
+                        continue
+                    
+                    mods.append({
+                        "name": item.name.replace(".disabled", ""),
+                        "file": str(item),
+                        "enabled": not item.name.endswith(".disabled"),
+                        "size_kb": 0,
+                        "category": cat,
+                        "notes": "Folder-based mod",
+                        "added": "Unknown",
+                        "managed": False,
+                        "file_count": 1,
+                    })
 
     # 2. Add managed mods that have NO .archive files at all (CET, Redscript, etc.)
     for mod_name, mod_data in managed.items():
@@ -557,6 +619,25 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
 
     return mods
 
+
+def clear_redscript_cache(game_path: Path):
+    """Deletes the Redscript cache to force a recompile."""
+    cache_paths = [
+        game_path / "r6" / "cache" / "modded" / "final.redscripts",
+        game_path / "r6" / "cache" / "final.redscripts",
+        # Some Proton versions/Redscript versions use these subfolders
+        game_path / "r6" / "cache" / "modded" / "final.redscripts.bk",
+        # Check for the actual compiler log to help debugging later
+        game_path / "r6" / "logs" / "redscript.log",
+        # Red4Ext also has a cache sometimes
+        game_path / "red4ext" / "cache" / "final.redscripts"
+    ]
+    for cp in cache_paths:
+        try:
+            if cp.exists():
+                cp.unlink()
+        except Exception:
+            pass
 
 def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
     """
@@ -598,23 +679,29 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
                         errors.append(f"{f.name}: {e}")
 
         if errors:
+            clear_redscript_cache(game_path)
             return False, f"{action} {mod['name']} with errors: {'; '.join(errors)}"
+        
+        clear_redscript_cache(game_path)
         return True, f"{action} {mod['name']} ({len(renamed)} files)"
 
     # ── Unmanaged mod — archive only ──────────────────────────────────────
     f = Path(mod["file"])
     try:
         if mod["enabled"]:
-            new_path = Path(str(f) + ".disabled")
-            f.rename(new_path)
-            return True, f"Disabled {mod['name']} (archive only)"
+            dest = Path(str(f) + ".disabled")
+            f.rename(dest)
+            clear_redscript_cache(game_path)
+            return True, f"Disabled {mod['name']} (unmanaged)"
         else:
-            new_path = Path(str(f).replace(".archive.disabled", ".archive"))
-            f.rename(new_path)
-            return True, f"Enabled {mod['name']} (archive only)"
+            # Remove .disabled from the end of the name
+            new_name = f.name[:-9] if f.name.endswith(".disabled") else f.name
+            dest = f.parent / new_name
+            f.rename(dest)
+            clear_redscript_cache(game_path)
+            return True, f"Enabled {mod['name']} (unmanaged)"
     except Exception as e:
         return False, f"Error: {e}"
-
 
 # ─── Screens ──────────────────────────────────────────────────────────────────
 
@@ -1215,14 +1302,18 @@ class MainScreen(Screen):
         if not self.game_path:
             return
             
+        # Clear the Redscript cache as part of the verification process
+        clear_redscript_cache(self.game_path)
+        
         missing = []
         total = 0
         for mod_name, data in self.manifest.get("mods", {}).items():
             for f_path in data.get("installed_files", []):
                 total += 1
                 p = Path(f_path)
+                # Check both active and .disabled versions
                 if not p.exists() and not Path(str(p) + ".disabled").exists():
-                    missing.append(f"{mod_name}: {Path(f_path).name}")
+                    missing.append(f"{mod_name}: {p.name}")
         
         if not missing:
             self.app.push_screen(MessageModal(f"Verified {total} files. All systems nominal.", "Integrity Check"))

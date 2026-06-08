@@ -1,7 +1,7 @@
 # ChooMod
 ### A Cyberpunk 2077 mod manager for Linux — built for the terminal
 
-![Version](https://img.shields.io/badge/version-0.4.0--dev-red) ![Platform](https://img.shields.io/badge/platform-Linux-blue) ![Python](https://img.shields.io/badge/python-3.10+-yellow)
+![Version](https://img.shields.io/badge/version-1.2.0--dev-red) ![Platform](https://img.shields.io/badge/platform-Linux-blue) ![Python](https://img.shields.io/badge/python-3.10+-yellow)
 
 ---
 
@@ -23,9 +23,9 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 
 ---
 
-## What it can do (v0.3.2)
+## What it can do (v1.2)
 
-- **Auto-detects your game install** — scans known Heroic and Steam paths, no manual setup required in most cases
+- **Advanced Game Detection** — reads Heroic Launcher's internal `installed.json` for accuracy, alongside standard Steam/GOG path scanning.
 - **Mod installer with pre-install preview** — inspect what a mod archive contains and where every file will go before anything is written to disk. Supports `.zip` and `.7z` formats
 - **Transactional Installation** — includes a rollback mechanism. If an install fails, ChooMod automatically cleans up the mess so no "ghost files" are left behind. Supports `.zip`, `.7z`, and `.rar` (via `rarfile`).
 - **Conflict detection** — warns you if a mod you're installing overlaps with files already owned by another mod
@@ -33,9 +33,10 @@ ChooMod isn't trying to replace any of those. It's solving one specific problem:
 - **Full subfolder preservation** — complex mods with Redscript, TweakXL, CET plugins, and ArchiveXL files all route correctly
 - **Manifest-tracked installs** — every file placed by ChooMod is recorded, making clean uninstalls possible
 - **Multi-archive grouping** — mods with multiple `.archive` files (like clothing sets) are grouped into a single entry in the mod list.
-- **Script/plugin-only mods visible** — mods with no `.archive` file (CET mods, Redscript-only mods) appear in the mod list
+- **Folder-based Mod Detection** — automatically finds unmanaged script and plugin folders in `r6/scripts` and `red4ext/plugins`.
 - **Enable/disable toggling** — non-destructive, just renames files
-- **Mod Adoption** — bring unmanaged mods you installed manually into the ChooMod manifest for easy management.
+- **Mod Adoption** — bring manual installs into the ChooMod manifest for full file tracking and clean uninstalls.
+- **Automatic Script Cache Clearing** — wipes the Redscript cache on mod toggle or integrity check to force a recompile (essential for switching Proton versions).
 - **Integrity Verification** — quickly check if any managed mod files are missing from your game directory.
 - **Search and filter** — find mods by name or category
 - **Activity log** — timestamped record of every action, including signed sessions on boot.
@@ -168,8 +169,10 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 ## Roadmap
 
 **Priority 1 — Core reliability**
-- [x] Partial install rollback — clean up placed files if install fails mid-way
-- [x] Adopt unmanaged mods into ChooMod's manifest
+- [x] Partial install rollback
+- [x] Adopt unmanaged mods
+- [x] Folder-based script mod detection
+- [x] Automatic Redscript cache clearing
 - [x] Group multi-archive mods as a single mod list entry
 - [x] Support for `.rar` and `.xl` file types
 
@@ -203,33 +206,27 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 | Feature | Version |
 |---------|---------|
-| Basic mod list display | v0.1.0 |
-| Support for `.rar` and `.xl` file types | v0.4.0 |
-| Enable/disable toggling | v0.1.0 |
-| GOG/Heroic and Steam auto-detection | v0.1.0 |
-| Zip installer with pre-install preview | v0.2.0 |
-| Full subfolder preservation for complex mods | v0.2.0 |
-| Manifest-tracked installs with clean uninstall | v0.2.0 |
-| Path-based manifest matching for multi-archive mods | v0.3.0 |
-| Manifest consolidation at `~/.config/choomod/` | v0.3.0 |
-| Dependencies tab with framework status indicators | v0.3.1 |
-| GitHub and Nexus links for each framework | v0.3.1 |
-| Conflict detection — warns before overwriting files | v0.3.2 |
-| `.7z` archive support via `py7zr` | v0.3.2 |
-| Script/plugin-only mods visible in mod list | v0.3.2 |
-| `red4ext/plugins` routing fix | v0.3.2 |
-| `engine/config` and `r6/cache` routing support | v0.3.2 |
+| Basic mod list display | 1.0 |
+| Support for `.rar` and `.xl` file types | 1.2 |
+| Enable/disable toggling | 1.0 |
+| GOG/Heroic and Steam auto-detection | 1.0 |
+| Zip installer with pre-install preview | 1.0.2 |
+| Full subfolder preservation for complex mods | 1.0.2 |
 
 ---
 
 ## Changelog
 
-**v0.4.0 (Development)**
-- Added support for `.rar` archives via `rarfile` library.
-- Expanded `FILE_ROUTES` to support `.xl` resource files (ArchiveXL).
-- Updated `ArchiveHandler` to gracefully handle library requirements for specific formats.
+**v1.2 (Current)**
+- **Heroic Config Integration**: Scans Heroic Launcher's internal database for precise game path detection.
+- **Proton Switch Support**: Added `clear_redscript_cache` logic triggered by Toggling or Verifying to prevent "Missing Dependency" errors.
+- **Folder Scanning**: Expanded detection to include script-only mods in `r6/scripts` and `red4ext/plugins`.
+- **Archive Support**: Added support for `.rar` archives via `rarfile`.
+- **Resource Support**: Expanded `FILE_ROUTES` to support `.xl` resource files (ArchiveXL).
 
-**v0.3.2**
+**v1.1.2**
+| `red4ext/plugins` routing fix | 1.1.2 |
+| `engine/config` and `r6/cache` routing support | 1.1.2 |
 - Refactored UI into BootScreen and MainScreen for better flow and state management.
 - Implemented transactional installation with automatic rollback if extraction fails.
 - Added unified ArchiveHandler to support .zip and .7z formats interchangeably.
@@ -244,22 +241,22 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 - Duplicate entry bug fixed via path-based manifest key matching
 - UI: "Install Mod" replaces "Install zip" throughout
 
-**v0.3.1**
+**v1.1.1**
 - Dependencies tab showing install status for CET, Red4Ext, Redscript, ArchiveXL, TweakXL, Codeware
 - GitHub and Nexus links for each framework
 
-**v0.3.0**
+**v1.1**
 - Path-based manifest matching — multi-archive mods correctly identified and uninstalled
 - Manifest consolidation — single config at `~/.config/choomod/`
 - Manifest key uses zip filename consistently
 
-**v0.2.0**
+**v1.0.2**
 - Zip installer with pre-install preview
 - Full subfolder preservation for complex mods
 - Manifest-tracked installs with clean uninstall
 - Verified working: Virtual Atelier (47 files), Limited HUD, Native Settings UI
 
-**v0.1.0**
+**v1.0**
 - Basic mod list display
 - Enable/disable toggling
 - GOG/Heroic and Steam auto-detection

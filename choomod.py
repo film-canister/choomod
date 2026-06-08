@@ -520,6 +520,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                     "notes": meta.get("notes", ""),
                     "added": meta.get("added", "Unknown"),
                     "managed": True,
+                    "manifest_key": managed_key,
                     "file_count": len(meta.get("installed_files", [])),
                 })
                 handled_manifest_keys.add(managed_key)
@@ -550,23 +551,67 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                 "notes": mod_data.get("notes", ""),
                 "added": mod_data.get("added", "Unknown"),
                 "managed": True,
+                "manifest_key": mod_name,
                 "file_count": len(mod_data.get("installed_files", [])),
             })
 
     return mods
 
 
-def toggle_mod(mod: dict, game_path: Path) -> tuple[bool, str]:
+def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
+    """
+    Toggle a mod on or off.
+
+    For managed mods: renames every tracked file in the manifest,
+    not just the .archive. This ensures scripts, plugins, and config
+    files are all disabled — not just the archive.
+
+    For unmanaged mods: falls back to renaming just the .archive file.
+    """
+    enabling = not mod["enabled"]
+    action = "Enabled" if enabling else "Disabled"
+
+    # ── Managed mod — rename all tracked files ────────────────────────────
+    managed_key = mod.get("manifest_key")
+    if managed_key and managed_key in manifest.get("mods", {}):
+        tracked_files = manifest["mods"][managed_key].get("installed_files", [])
+        renamed = []
+        errors = []
+
+        for file_str in tracked_files:
+            f = Path(file_str)
+            if enabling:
+                disabled_path = Path(str(f) + ".disabled")
+                if disabled_path.exists():
+                    try:
+                        disabled_path.rename(f)
+                        renamed.append(str(f))
+                    except Exception as e:
+                        errors.append(f"{f.name}: {e}")
+            else:
+                if f.exists():
+                    disabled_path = Path(str(f) + ".disabled")
+                    try:
+                        f.rename(disabled_path)
+                        renamed.append(str(f))
+                    except Exception as e:
+                        errors.append(f"{f.name}: {e}")
+
+        if errors:
+            return False, f"{action} {mod['name']} with errors: {'; '.join(errors)}"
+        return True, f"{action} {mod['name']} ({len(renamed)} files)"
+
+    # ── Unmanaged mod — archive only ──────────────────────────────────────
     f = Path(mod["file"])
     try:
         if mod["enabled"]:
             new_path = Path(str(f) + ".disabled")
             f.rename(new_path)
-            return True, f"Disabled {mod['name']}"
+            return True, f"Disabled {mod['name']} (archive only)"
         else:
             new_path = Path(str(f).replace(".archive.disabled", ".archive"))
             f.rename(new_path)
-            return True, f"Enabled {mod['name']}"
+            return True, f"Enabled {mod['name']} (archive only)"
     except Exception as e:
         return False, f"Error: {e}"
 
@@ -1121,7 +1166,7 @@ class MainScreen(Screen):
         mod = self._get_selected_mod()
         if not mod:
             return
-        ok, msg = toggle_mod(mod, self.game_path)
+        ok, msg = toggle_mod(mod, self.game_path, self.manifest)
         self._add_log(msg, "ok" if ok else "err")
         self.action_refresh()
 

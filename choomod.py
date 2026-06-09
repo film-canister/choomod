@@ -76,11 +76,22 @@ def scan_heroic_config() -> Path | None:
 FILE_ROUTES = [
     # (rule_type, pattern,                       destination,                required_framework)
 
+    # Specific Framework files (handles archives missing full directory structures)
+    ("name",   "RED4ext.dll",                    "bin/x64",                  "Red4Ext"),
+    ("name",   "scc.exe",                        "engine/tools",             "Redscript"),
+    ("name",   "scc_lib.dll",                    "engine/tools",             "Redscript"),
+
+    # Redscript compiler directory
+    ("path",   "engine/tools",                   "engine/tools",             "Redscript"),
+
     # ArchiveXL extension files — must come before generic .archive rule
     ("suffix", ".archive.xl",                    "archive/pc/mod",           "ArchiveXL"),
 
     # ArchiveXL resource files
     ("suffix", ".xl",                            "archive/pc/mod",           "ArchiveXL"),
+
+    # Codeware (Redscript dependency)
+    ("path",   "codeware/",                      "r6/scripts",               "Redscript"),
 
     # Standard mod archives
     ("suffix", ".archive",                       "archive/pc/mod",           None),
@@ -157,8 +168,23 @@ def check_frameworks(game_path: Path) -> list[dict]:
     results = []
     
     for framework in FRAMEWORK_MODS:
-        full_path = game_path / framework["check_path"]
-        installed = full_path.exists()
+        rel_path = Path(framework["check_path"])
+        full_path = game_path / rel_path
+        
+        # 1. Direct check (handles exact match and .disabled variants)
+        installed = full_path.exists() or Path(str(full_path) + ".disabled").exists()
+        
+        # 2. Case-insensitive fallback (crucial for Linux compatibility)
+        if not installed:
+            parent = game_path / rel_path.parent
+            if parent.exists():
+                target_lower = rel_path.name.lower()
+                for item in parent.iterdir():
+                    item_name_lower = item.name.lower()
+                    if item_name_lower == target_lower or item_name_lower == target_lower + ".disabled":
+                        installed = True
+                        break
+
         results.append({
             "name": framework["name"],
             "installed": installed,
@@ -189,10 +215,14 @@ def detect_game() -> tuple[str | None, Path | None, str]:
 
 def _route_file(entry_path: str) -> tuple[str | None, str | None]:
     """Determine the destination directory and framework requirement for a file."""
+    entry_lower = entry_path.lower()
+    entry_name_lower = Path(entry_path).name.lower()
     for rule_type, pattern, dest, req in FILE_ROUTES:
-        if rule_type == "suffix" and entry_path.endswith(pattern):
+        if rule_type == "suffix" and entry_lower.endswith(pattern.lower()):
             return dest, req
-        elif rule_type == "path" and pattern in entry_path:
+        elif rule_type == "name" and entry_name_lower == pattern.lower():
+            return dest, req
+        elif rule_type == "path" and pattern.lower() in entry_lower:
             return dest, req
     return None, None
 
@@ -208,7 +238,9 @@ def _get_relative_subpath(entry_path: str, destination: str) -> Path:
     last_dest_part = dest_root_parts[-1]
 
     try:
-        idx = list(p_parts).index(last_dest_part)
+        # Use case-insensitive matching for the anchor folder (e.g., match 'Scripts' to 'scripts')
+        p_parts_lower = [part.lower() for part in p_parts]
+        idx = p_parts_lower.index(last_dest_part.lower())
         return Path(*p_parts[idx + 1:]) if idx + 1 < len(p_parts) else Path(p.name)
     except ValueError:
         return Path(p.name)
@@ -626,8 +658,9 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
     return mods
 
 
-def clear_redscript_cache(game_path: Path):
+def clear_redscript_cache(game_path: Path) -> list[str]:
     """Deletes the Redscript cache to force a recompile."""
+    deleted = []
     cache_files = [
         game_path / "r6" / "cache" / "final.redscripts",
         game_path / "r6" / "cache" / "final.redscripts.bk",
@@ -640,6 +673,7 @@ def clear_redscript_cache(game_path: Path):
     if modded_dir.exists():
         try:
             shutil.rmtree(modded_dir)
+            deleted.append("r6/cache/modded/")
         except Exception:
             # If we can't remove the dir, we'll try to individual files via the loop below
             pass
@@ -648,8 +682,10 @@ def clear_redscript_cache(game_path: Path):
         try:
             if cf.exists():
                 cf.unlink()
+                deleted.append(cf.name)
         except Exception:
             pass
+    return deleted
 
 def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
     """
@@ -707,7 +743,7 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
             return True, f"Disabled {mod['name']} (unmanaged)"
         else:
             # Remove .disabled from the end of the name
-            new_name = f.name[:-9] if f.name.endswith(".disabled") else f.name
+            new_name = f.name.removesuffix(".disabled")
             dest = f.parent / new_name
             f.rename(dest)
             clear_redscript_cache(game_path)
@@ -734,6 +770,24 @@ class MessageModal(ModalScreen):
     def on_button_pressed(self, event: Button.Pressed):
         self.dismiss()
 
+class ConfirmModal(ModalScreen):
+    BINDINGS = [Binding("escape", "dismiss", "Cancel")]
+
+    def __init__(self, message: str, title: str = "Confirm"):
+        super().__init__()
+        self._message = message
+        self._title = title
+
+    def compose(self) -> ComposeResult:
+        with Container(id="modal-box"):
+            yield Label(self._title, id="modal-title")
+            yield Static(self._message, id="modal-body")
+            with Horizontal(id="modal-btns"):
+                yield Button("Confirm", id="confirm-btn", variant="primary")
+                yield Button("Cancel", id="cancel-btn")
+
+    def on_button_pressed(self, event: Button.Pressed):
+        self.dismiss(event.button.id == "confirm-btn")
 
 class InstallPreviewModal(ModalScreen):
     """Show the install plan and ask for confirmation before writing any files."""
@@ -990,8 +1044,8 @@ DataTable > .datatable--cursor { background: #1a1a2e; color: #c8c8d8; }
 DataTable > .datatable--hover { background: #0f0f18; }
 
 #action-bar {
-    height: 3; background: #0f0f1a; border-top: tall #1e1e35;
-    padding: 0 1; align: left middle;
+    height: 4; background: #0f0f1a; border-top: tall #1e1e35;
+    padding: 0 1; layout: horizontal; overflow-y: hidden; align: left middle;
 }
 .action-btn {
     min-width: 16; margin-right: 1;
@@ -1107,12 +1161,13 @@ class MainScreen(Screen):
 
                     yield DataTable(id="mod-table", cursor_type="row")
 
-                    with Horizontal(id="action-bar"):
+                    with ScrollableContainer(id="action-bar"):
                         yield Button("Install [I]",     id="btn-install",   classes="action-btn -primary")
                         yield Button("Toggle [T]",      id="btn-toggle",    classes="action-btn")
                         yield Button("Edit [E]",        id="btn-edit",      classes="action-btn")
                         yield Button("Adopt [A]",       id="btn-adopt",     classes="action-btn")
                         yield Button("Uninstall [U]",   id="btn-uninstall", classes="action-btn -danger")
+                        yield Button("Clear Cache",     id="btn-clearcache",classes="action-btn")
                         yield Button("Verify [V]",      id="btn-verify",    classes="action-btn")
                         yield Button("Refresh [R]",     id="btn-refresh",   classes="action-btn")
                         yield Button("Set Game Path",   id="btn-setpath",   classes="action-btn")
@@ -1139,6 +1194,7 @@ class MainScreen(Screen):
                         yield Label("Mod directory:", classes="setting-label")
                         mod_dir = str(get_mod_dir(self.game_path)) if self.game_path else "N/A"
                         yield Label(mod_dir, classes="setting-value", id="s-moddir")
+                    yield Button("Reset Manifest", id="btn-reset-manifest", variant="error", classes="action-btn -danger")
                     with Horizontal(classes="setting-row"):
                         yield Label("Manifest file:", classes="setting-label")
                         yield Label(str(MANIFEST_FILE), classes="setting-value")
@@ -1241,7 +1297,9 @@ class MainScreen(Screen):
             "btn-adopt":     self.action_adopt_selected,
             "btn-verify":    self.action_verify_integrity,
             "btn-refresh":   self.action_refresh,
+            "btn-clearcache": self.action_clear_cache,
             "btn-setpath":   self._do_set_path,
+            "btn-reset-manifest": self.action_reset_manifest,
             "btn-install":   self.action_do_install_zip,
             "btn-uninstall": self.action_uninstall_selected,
         }
@@ -1257,6 +1315,30 @@ class MainScreen(Screen):
             self.query_one("#stats-label", Label).update(self._stats_text())
             self._add_log("Mod list refreshed.", "ok")
             self._refresh_log_tab()
+
+    def action_clear_cache(self):
+        if self.game_path:
+            deleted = clear_redscript_cache(self.game_path)
+            msg = f"Redscript cache cleared ({', '.join(deleted) if deleted else 'none found'})"
+            self._add_log(msg, "ok")
+            self._refresh_log_tab()
+            self.app.push_screen(MessageModal("Redscript cache has been wiped. It will recompile on next launch.", "Cache Cleared"))
+        else:
+            self.app.push_screen(MessageModal("No game path set.", "Error"))
+
+    def action_reset_manifest(self):
+        async def handle(confirmed):
+            if confirmed:
+                self.manifest = {"mods": {}, "game_path": str(self.game_path), "launcher": self.launcher}
+                save_manifest(self.manifest)
+                self._add_log("Manifest reset to match fresh installation.", "warn")
+                self.action_refresh()
+                self.app.push_screen(MessageModal("All mod tracking data has been cleared.", "Manifest Reset"))
+        
+        self.app.push_screen(
+            ConfirmModal("This will clear all tracked mods from ChooMod. Use this after a fresh game reinstall.", "Reset Manifest"),
+            handle
+        )
 
     def action_toggle_selected(self):
         if not self.game_path:
@@ -1376,7 +1458,7 @@ class MainScreen(Screen):
         async def got_zip_path(zip_str):
             if not zip_str:
                 return
-            zip_path = Path(zip_str)
+            zip_path = Path(zip_str).expanduser()
             if not zip_path.exists():
                 self.app.push_screen(MessageModal(f"File not found:\n{zip_path}", "Error"))
                 return
@@ -1424,7 +1506,7 @@ class MainScreen(Screen):
     def _do_set_path(self):
         async def handle(result):
             if result:
-                p = Path(result)
+                p = Path(result).expanduser()
                 if p.exists():
                     self.game_path = p
                     self.launcher = "Manual"

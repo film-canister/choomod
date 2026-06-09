@@ -464,6 +464,9 @@ def install_from_plan(
     }
     save_manifest(manifest)
 
+    # Force a script recompile to prevent "Missing Dependency" errors
+    clear_redscript_cache(game_path)
+
     return True, f"Successfully installed {len(installed_files)} files.", installed_files
 
 

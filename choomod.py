@@ -147,7 +147,7 @@ FRAMEWORK_MODS = [
     },
     {
         "name": "Codeware",
-        "check_path": "red4ext/plugins/Codeware",
+        "check_path": "r6/scripts/Codeware",
         "url": "https://github.com/psiberx/cp2077-codeware",
         "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/7381"
     },
@@ -374,15 +374,23 @@ def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
 
     return conflicts
 
-def check_dependencies(plan: dict, game_path: Path) -> list[str]:
+def check_dependencies(plan: dict, game_path: Path, manifest: dict) -> list[str]:
     """Compare plan requirements against installed frameworks."""
     reqs = plan.get("requirements", set())
     if not reqs:
         return []
 
     frameworks = check_frameworks(game_path)
-    # Create a lookup for quick status checking
-    status_map = {fw["name"]: fw["installed"] for fw in frameworks}
+    managed_mods = manifest.get("mods", {})
+    # Check both if the file exists AND if it is managed/enabled by ChooMod
+    status_map = {}
+    for fw in frameworks:
+        is_installed = fw["installed"]
+        # If the framework is managed, ensure it's actually enabled
+        if fw["name"] in managed_mods:
+            if not managed_mods[fw["name"]].get("enabled", True):
+                is_installed = False
+        status_map[fw["name"]] = is_installed
     
     return [req for req in reqs if not status_map.get(req, False)]
 
@@ -526,19 +534,14 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
     """
     mod_dir = get_mod_dir(game_path)
     mods = []
-    
-    if not mod_dir.exists():
-        # Even if mod_dir is missing, we might have script mods or manifest entries
-        pass
-    else:
-        archive_files = sorted(list(mod_dir.glob("*.archive")) + list(mod_dir.glob("*.archive.disabled")))
-        # ... (rest of archive scanning logic)
 
     handled_manifest_keys = set()
     managed = manifest.get("mods", {})
 
     # 1. Scan for all archive files (enabled and disabled)
-    archive_files = sorted(list(mod_dir.glob("*.archive")) + list(mod_dir.glob("*.archive.disabled")))
+    archive_files = []
+    if mod_dir.exists():
+        archive_files = sorted(list(mod_dir.glob("*.archive")) + list(mod_dir.glob("*.archive.disabled")))
 
     for f in archive_files:
         managed_key = find_manifest_entry(str(f).replace(".disabled", ""), manifest)
@@ -622,20 +625,26 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
 
 def clear_redscript_cache(game_path: Path):
     """Deletes the Redscript cache to force a recompile."""
-    cache_paths = [
-        game_path / "r6" / "cache" / "modded" / "final.redscripts",
+    cache_files = [
         game_path / "r6" / "cache" / "final.redscripts",
-        # Some Proton versions/Redscript versions use these subfolders
-        game_path / "r6" / "cache" / "modded" / "final.redscripts.bk",
-        # Check for the actual compiler log to help debugging later
+        game_path / "r6" / "cache" / "final.redscripts.bk",
         game_path / "r6" / "logs" / "redscript.log",
-        # Red4Ext also has a cache sometimes
         game_path / "red4ext" / "cache" / "final.redscripts"
     ]
-    for cp in cache_paths:
+    
+    # Wipe the entire modded cache directory if it exists
+    modded_dir = game_path / "r6" / "cache" / "modded"
+    if modded_dir.exists():
         try:
-            if cp.exists():
-                cp.unlink()
+            shutil.rmtree(modded_dir)
+        except Exception:
+            # If we can't remove the dir, we'll try to individual files via the loop below
+            pass
+
+    for cf in cache_files:
+        try:
+            if cf.exists():
+                cf.unlink()
         except Exception:
             pass
 
@@ -1378,7 +1387,7 @@ class MainScreen(Screen):
             try:
                 plan = inspect_zip(zip_path)
                 conflicts = check_conflicts(plan, self.manifest, self.game_path)
-                missing_deps = check_dependencies(plan, self.game_path)
+                missing_deps = check_dependencies(plan, self.game_path, self.manifest)
             except Exception as e:
                 self.app.push_screen(MessageModal(f"Error reading zip:\n{e}", "Error"))
                 return

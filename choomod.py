@@ -311,6 +311,22 @@ def get_mod_dir(game_path: Path) -> Path:
     return game_path / "archive" / "pc" / "mod"
 
 
+def _cleanup_empty_dirs(start_path: Path, game_path: Path):
+    """Recursively delete empty parent directories up to the game root components."""
+    stop_folders = {"archive", "bin", "engine", "r6", "red4ext"}
+    current = start_path.parent
+    while current != game_path and len(current.parts) > len(game_path.parts):
+        if current.name.lower() in stop_folders:
+            break
+        try:
+            if not any(current.iterdir()):
+                current.rmdir()
+                current = current.parent
+            else:
+                break
+        except Exception:
+            break
+
 # ─── Manifest ─────────────────────────────────────────────────────────────────
 
 def load_manifest() -> dict:
@@ -554,7 +570,7 @@ def install_from_plan(
 # UNINSTALLER
 # ─────────────────────────────────────────────────────────────────────────────
 # Because install_from_plan() recorded every file it wrote,
-# uninstalling is just: read the list, delete each file.
+# uninstalling is just: read the list, delete each file, and clear caches.
 # No guessing, no leftover files.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -586,16 +602,15 @@ def uninstall_mod(mod_name: str, manifest: dict) -> tuple[bool, str]:
                         if bak_path.exists():
                             bak_path.rename(file_str)
 
-                    # Clean up empty parent directories
-                    try:
-                        target.parent.rmdir()
-                    except OSError:
-                        pass
+                    # Clean up empty parent directories recursively
+                    _cleanup_empty_dirs(target, Path(manifest.get("game_path", "")))
             except Exception as e:
                 errors.append(f"Failed to delete {target.name}: {e}")
 
     del manifest["mods"][mod_name]
     save_manifest(manifest)
+    
+    clear_redscript_cache(Path(manifest.get("game_path", "")))
 
     if errors:
         return False, f"Removed {removed} files with {len(errors)} errors"
@@ -780,7 +795,7 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
                         renamed.append(str(f))
                     except Exception as e:
                         errors.append(f"{f.name}: {e}")
-            else:
+            elif not enabling:
                 if f.exists():
                     disabled_path = Path(str(f) + ".disabled")
                     try:
@@ -795,6 +810,11 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
                                 
                     except Exception as e:
                         errors.append(f"{f.name}: {e}")
+            
+            # Clean up potentially empty folders left by moving/deleting files
+            game_root = Path(manifest.get("game_path", ""))
+            if game_root:
+                _cleanup_empty_dirs(f, game_root)
 
         if errors:
             clear_redscript_cache(game_path)
@@ -1471,10 +1491,7 @@ class MainScreen(Screen):
         """Check if all managed files exist on disk."""
         if not self.game_path:
             return
-            
-        # Clear the Redscript cache as part of the verification process
-        clear_redscript_cache(self.game_path)
-        
+
         missing = []
         total = 0
         for mod_name, data in self.manifest.get("mods", {}).items():
@@ -1484,8 +1501,23 @@ class MainScreen(Screen):
                 # Check both active and .disabled versions
                 if not p.exists() and not Path(str(p) + ".disabled").exists():
                     missing.append(f"{mod_name}: {p.name}")
-        
+
+        if total > 0 and len(missing) == total:
+            # Special case: everything is gone, likely a game wipe/reinstall
+            async def handle_wipe(confirmed):
+                if confirmed:
+                    self.action_reset_manifest()
+            
+            self.app.push_screen(ConfirmModal(
+                "All tracked mod files are missing from the game directory.\n\n"
+                "If you've reinstalled or wiped the game, would you like to reset the manifest now?",
+                "Wipe Detected"
+            ), handle_wipe)
+            return
+
         if not missing:
+            # Only clear cache if the integrity looks good
+            clear_redscript_cache(self.game_path)
             self.app.push_screen(MessageModal(f"Verified {total} files. All systems nominal.", "Integrity Check"))
             self._add_log("Integrity check passed.", "ok")
         else:

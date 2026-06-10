@@ -166,24 +166,48 @@ FRAMEWORK_MODS = [
 
 def check_frameworks(game_path: Path) -> list[dict]:
     results = []
-    
-    for framework in FRAMEWORK_MODS:
-        rel_path = Path(framework["check_path"])
-        full_path = game_path / rel_path
-        
-        # 1. Direct check (handles exact match and .disabled variants)
-        installed = full_path.exists() or Path(str(full_path) + ".disabled").exists()
-        
-        # 2. Case-insensitive fallback (crucial for Linux compatibility)
-        if not installed:
-            parent = game_path / rel_path.parent
-            if parent.exists():
-                target_lower = rel_path.name.lower()
-                for item in parent.iterdir():
-                    item_name_lower = item.name.lower()
-                    if item_name_lower == target_lower or item_name_lower == target_lower + ".disabled":
-                        installed = True
+
+    def exists_ci(base: Path, rel_path_str: str) -> bool:
+        """Recursively checks for a path case-insensitively segment by segment."""
+        current = base
+        parts = Path(rel_path_str).parts
+        for i, part in enumerate(parts):
+            if not current.exists() or not current.is_dir():
+                return False
+            
+            target = part.lower()
+            is_last = (i == len(parts) - 1)
+            found = None
+            
+            try:
+                for entry in current.iterdir():
+                    name_lower = entry.name.lower()
+                    if name_lower == target:
+                        found = entry
                         break
+                    if is_last and name_lower == target + ".disabled":
+                        found = entry
+                        break
+            except OSError:
+                return False
+                
+            if not found:
+                return False
+            current = found
+        return True
+
+    for framework in FRAMEWORK_MODS:
+        installed = exists_ci(game_path, framework["check_path"])
+        
+        # Framework-specific fallback checks
+        if not installed:
+            name = framework["name"]
+            if name == "Codeware":
+                installed = exists_ci(game_path, "red4ext/plugins/Codeware")
+            elif name == "Red4Ext":
+                installed = exists_ci(game_path, "bin/x64/RED4ext.dll")
+            elif name == "Cyber Engine Tweaks":
+                installed = exists_ci(game_path, "bin/x64/plugins/cyber_engine_tweaks.dll")
 
         results.append({
             "name": framework["name"],

@@ -422,10 +422,18 @@ def check_conflicts(plan: dict, manifest: dict, game_path: Path) -> list[dict]:
         relative_subpath = _get_relative_subpath(zip_entry, destination)
         full_dest = str(game_path / destination / relative_subpath)
         existing_owner = find_manifest_entry(full_dest, manifest)
+        
         if existing_owner:
             conflicts.append({
                 "file": Path(zip_entry).name,
                 "owned_by": existing_owner,
+                "type": "mod",
+            })
+        elif Path(full_dest).exists():
+            conflicts.append({
+                "file": Path(zip_entry).name,
+                "owned_by": "Vanilla Game",
+                "type": "vanilla",
             })
 
     return conflicts
@@ -479,6 +487,7 @@ def install_from_plan(
     Returns (success, message, list_of_installed_file_paths).
     """
     installed_files = []
+    backups = {}
     total = len(plan["auto"])
 
     try:
@@ -487,6 +496,14 @@ def install_from_plan(
                 relative_subpath = _get_relative_subpath(zip_entry, destination)
                 dest_path = game_path / destination / relative_subpath
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Backup vanilla files before overwriting
+                is_vanilla = dest_path.exists() and not find_manifest_entry(str(dest_path), manifest)
+                if is_vanilla:
+                    bak_path = dest_path.with_suffix(dest_path.suffix + ".choobak")
+                    if not bak_path.exists(): # Only backup once
+                        shutil.copy2(dest_path, bak_path)
+                        backups[str(dest_path)] = str(bak_path)
 
                 # Extract and write the file
                 with zf.open_entry(zip_entry) as src, open(dest_path, "wb") as dst:
@@ -500,6 +517,12 @@ def install_from_plan(
             if p_to_undo.exists():
                 p_to_undo.unlink()
         
+        # Restore backups created during this failed session
+        for original, backup in backups.items():
+            bak_p = Path(backup)
+            if bak_p.exists():
+                bak_p.rename(original)
+        
         return False, f"Install failed: {e}. Rollback complete.", []
 
     if not installed_files:
@@ -512,6 +535,7 @@ def install_from_plan(
     
     manifest.setdefault("mods", {})[mod_name] = {
         "installed_files": installed_files,
+        "backups": backups,
         "category": "Uncategorised",
         "notes": "",
         "added": datetime.now().strftime("%Y-%m-%d"),
@@ -540,12 +564,13 @@ def uninstall_mod(mod_name: str, manifest: dict) -> tuple[bool, str]:
         return False, f"No install record for '{mod_name}'"
 
     files = mod_data.get("installed_files", [])
+    backups = mod_data.get("backups", {})
     removed = 0
     errors = []
 
     for file_str in files:
         p = Path(file_str)
-        # We check both the original path and the '.disabled' variant 
+        # We check both the original path and the '.disabled' variant
         # to ensure toggled mods are still cleaned up.
         targets = [p, Path(str(p) + ".disabled")]
         
@@ -554,6 +579,13 @@ def uninstall_mod(mod_name: str, manifest: dict) -> tuple[bool, str]:
                 if target.exists():
                     target.unlink()
                     removed += 1
+                    
+                    # RESTORE VANILLA BACKUP IF IT EXISTS
+                    if file_str in backups:
+                        bak_path = Path(backups[file_str])
+                        if bak_path.exists():
+                            bak_path.rename(file_str)
+
                     # Clean up empty parent directories
                     try:
                         target.parent.rmdir()
@@ -727,7 +759,9 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
     # ── Managed mod — rename all tracked files ────────────────────────────
     managed_key = mod.get("manifest_key")
     if managed_key and managed_key in manifest.get("mods", {}):
-        tracked_files = manifest["mods"][managed_key].get("installed_files", [])
+        mod_data = manifest["mods"][managed_key]
+        tracked_files = mod_data.get("installed_files", [])
+        backups = mod_data.get("backups", {})
         renamed = []
         errors = []
 
@@ -737,6 +771,11 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
                 disabled_path = Path(str(f) + ".disabled")
                 if disabled_path.exists():
                     try:
+                        # If this mod overwrote a vanilla file, the vanilla copy 
+                        # is currently at 'f'. We remove it before moving the mod file back.
+                        if file_str in backups and f.exists():
+                            f.unlink()
+                            
                         disabled_path.rename(f)
                         renamed.append(str(f))
                     except Exception as e:
@@ -747,6 +786,13 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
                     try:
                         f.rename(disabled_path)
                         renamed.append(str(f))
+                        
+                        # Restore vanilla copy if a backup exists
+                        if file_str in backups:
+                            bak_p = Path(backups[file_str])
+                            if bak_p.exists():
+                                shutil.copy2(bak_p, f)
+                                
                     except Exception as e:
                         errors.append(f"{f.name}: {e}")
 
@@ -837,7 +883,10 @@ class InstallPreviewModal(ModalScreen):
                 if self._conflicts:
                     conflict_lines = ["[red]⚠ Conflicts detected:[/red]"]
                     for c in self._conflicts:
-                        conflict_lines.append(f"  [red]{c['file']}[/red] already owned by [yellow]{c['owned_by']}[/yellow]")
+                        if c.get('type') == 'vanilla':
+                            conflict_lines.append(f"  [red]Vanilla Overwrite:[/red] [yellow]{c['file']}[/yellow] (Backup will be created)")
+                        else:
+                            conflict_lines.append(f"  [red]{c['file']}[/red] already owned by [yellow]{c['owned_by']}[/yellow]")
                     yield Static("\n".join(conflict_lines), id="modal-conflicts")
             with Horizontal(id="modal-btns"):
                 can_install = bool(self._plan["auto"])

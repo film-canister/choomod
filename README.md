@@ -166,10 +166,13 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ---
 
-## Roadmap
+## Bug Tracker
+Current issues and their status can be found in BUGS.md.
 
+## Roadmap
 **Priority 1 — Core reliability**
 - [x] Partial install rollback
+- [x] Vanilla file protection (backups)
 - [x] Adopt unmanaged mods
 - [x] Folder-based script mod detection
 - [x] Automatic Redscript cache clearing
@@ -263,4 +266,4 @@ If you're a developer and you want to contribute, that's genuinely welcome — e
 
 ---
 
-*Choom is Night City slang for friend. Felt right.*g
+*Choom is Night City slang for friend. Felt right.*

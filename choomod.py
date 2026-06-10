@@ -645,7 +645,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                 mods.append({
                     "name": managed_key,
                     "file": str(f),
-                    "enabled": not str(f).endswith(".disabled"),
+                    "enabled": meta.get("enabled", True),
                     "size_kb": round(f.stat().st_size / 1024),
                     "category": meta.get("category", "Uncategorised"),
                     "notes": meta.get("notes", ""),
@@ -701,7 +701,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
             mods.append({
                 "name": mod_name,
                 "file": mod_data.get("source_zip", ""),
-                "enabled": True,
+                "enabled": mod_data.get("enabled", True),
                 "size_kb": 0,
                 "category": mod_data.get("category", "Script/Plugin"),
                 "notes": mod_data.get("notes", ""),
@@ -800,6 +800,9 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
             clear_redscript_cache(game_path)
             return False, f"{action} {mod['name']} with errors: {'; '.join(errors)}"
         
+        mod_data["enabled"] = enabling
+        save_manifest(manifest)
+
         clear_redscript_cache(game_path)
         return True, f"{action} {mod['name']} ({len(renamed)} files)"
 

@@ -313,12 +313,12 @@ def get_mod_dir(game_path: Path) -> Path:
 
 def _cleanup_empty_dirs(start_path: Path, game_path: Path):
     """Recursively delete empty parent directories up to the game root components."""
-    stop_folders = {"archive", "bin", "engine", "r6", "red4ext"}
+    stop_folders = {"archive", "bin", "engine", "r6", "red4ext", "plugins", "scripts", "tweaks", "pc", "mod"}
     current = start_path.parent
     while current != game_path and len(current.parts) > len(game_path.parts):
-        if current.name.lower() in stop_folders:
-            break
         try:
+            if current.name.lower() in stop_folders:
+                break
             if not any(current.iterdir()):
                 current.rmdir()
                 current = current.parent
@@ -516,7 +516,8 @@ def install_from_plan(
                 # Backup vanilla files before overwriting
                 is_vanilla = dest_path.exists() and not find_manifest_entry(str(dest_path), manifest)
                 if is_vanilla:
-                    bak_path = dest_path.with_suffix(dest_path.suffix + ".choobak")
+                    # Use a consistent backup naming convention
+                    bak_path = dest_path.parent / (dest_path.name + ".choobak")
                     if not bak_path.exists(): # Only backup once
                         shutil.copy2(dest_path, bak_path)
                         backups[str(dest_path)] = str(bak_path)
@@ -735,11 +736,11 @@ def clear_redscript_cache(game_path: Path) -> list[str]:
     cache_files = [
         game_path / "r6" / "cache" / "final.redscripts",
         game_path / "r6" / "cache" / "final.redscripts.bk",
-        game_path / "r6" / "logs" / "redscript.log",
-        game_path / "red4ext" / "cache" / "final.redscripts"
+        game_path / "red4ext" / "cache" / "final.redscripts",
+        game_path / "r6" / "cache" / "modded" / "final.redscripts"
     ]
     
-    # Wipe the entire modded cache directory if it exists
+    # Thoroughly wipe the modded cache directory
     modded_dir = game_path / "r6" / "cache" / "modded"
     if modded_dir.exists():
         try:
@@ -749,6 +750,15 @@ def clear_redscript_cache(game_path: Path) -> list[str]:
             # If we can't remove the dir, we'll try to individual files via the loop below
             pass
 
+    # Also clear logs as they can hold locks or stale info
+    logs = [game_path / "r6" / "logs" / "redscript.log", game_path / "red4ext" / "logs" / "red4ext.log"]
+    for log in logs:
+        if log.exists():
+            try:
+                log.unlink()
+            except Exception:
+                pass
+
     for cf in cache_files:
         try:
             if cf.exists():
@@ -757,6 +767,22 @@ def clear_redscript_cache(game_path: Path) -> list[str]:
         except Exception:
             pass
     return deleted
+
+def deep_clean_ghost_folders(game_path: Path):
+    """Scans for empty folders in script/plugin directories and removes them."""
+    targets = [
+        game_path / "r6" / "scripts",
+        game_path / "red4ext" / "plugins",
+        game_path / "r6" / "tweaks"
+    ]
+    for t in targets:
+        if t.exists():
+            for root, dirs, files in os.walk(t, topdown=False):
+                for d in dirs:
+                    dir_path = Path(root) / d
+                    if not any(dir_path.iterdir()):
+                        try: dir_path.rmdir() 
+                        except Exception: pass
 
 def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
     """
@@ -1407,6 +1433,9 @@ class MainScreen(Screen):
     def action_refresh(self):
         if self.game_path:
             self.mods = scan_mods(self.game_path, self.manifest)
+            # Clean up empty folders that might be confusing the game
+            deep_clean_ghost_folders(self.game_path)
+            
             self._build_table()
             self.query_one("#stats-label", Label).update(self._stats_text())
             self._add_log("Mod list refreshed.", "ok")
@@ -1475,10 +1504,15 @@ class MainScreen(Screen):
         mod_name = mod["name"]
         file_path = mod["file"]
         
+        # Determine if we should adopt just the file or the containing folder
+        tracked_items = [file_path]
+        if Path(file_path).is_dir():
+            tracked_items = [str(p) for p in Path(file_path).rglob("*") if p.is_file()]
+        
         self.manifest.setdefault("mods", {})[mod_name] = {
-            "installed_files": [file_path],
+            "installed_files": tracked_items,
             "category": "Unmanaged",
-            "notes": "Adopted unmanaged mod",
+            "notes": f"Adopted {'folder' if Path(file_path).is_dir() else 'file'}",
             "added": datetime.now().strftime("%Y-%m-%d"),
             "source_zip": "Adopted",
             "enabled": mod["enabled"],

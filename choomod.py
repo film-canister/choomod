@@ -693,10 +693,15 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
     for root_dir, cat in search_dirs:
         if root_dir.exists():
             for item in root_dir.iterdir():
-                if item.is_dir() and not find_manifest_entry(str(item), manifest):
-                    # Check if it's already in our list (could be if it has an archive too)
-                    if any(m["name"] == item.name.replace(".disabled", "") for m in mods):
-                        continue
+                if item.is_dir():
+                    # Check if ANY file inside this folder is tracked in the manifest
+                    folder_is_managed = any(
+                        find_manifest_entry(str(f), manifest) 
+                        for f in item.rglob("*") if f.is_file()
+                    )
+                    if not folder_is_managed:
+                        if any(m["name"] == item.name.replace(".disabled", "") for m in mods):
+                            continue
                     
                     mods.append({
                         "name": item.name.replace(".disabled", ""),
@@ -749,14 +754,6 @@ def clear_redscript_cache(game_path: Path) -> list[str]:
             # If we can't remove the dir, we'll try to individual files via the loop below
             pass
 
-    # Also clear logs as they can hold locks or stale info
-    logs = [game_path / "r6" / "logs" / "redscript.log", game_path / "red4ext" / "logs" / "red4ext.log"]
-    for log in logs:
-        if log.exists():
-            try:
-                log.unlink()
-            except Exception:
-                pass
 
     for cf in cache_files:
         try:
@@ -820,7 +817,7 @@ def toggle_mod(mod: dict, game_path: Path, manifest: dict) -> tuple[bool, str]:
                         renamed.append(str(f))
                     except Exception as e:
                         errors.append(f"{f.name}: {e}")
-            elif not enabling:
+            else:
                 if f.exists():
                     disabled_path = Path(str(f) + ".disabled")
                     try:
@@ -1436,6 +1433,7 @@ class MainScreen(Screen):
             deep_clean_ghost_folders(self.game_path)
             
             self._build_table()
+            self._build_deps_table
             self.query_one("#stats-label", Label).update(self._stats_text())
             self._add_log("Mod list refreshed.", "ok")
             self._refresh_log_tab()

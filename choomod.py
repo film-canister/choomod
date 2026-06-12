@@ -703,16 +703,16 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                         if any(m["name"] == item.name.replace(".disabled", "") for m in mods):
                             continue
                     
-                    mods.append({
-                        "name": item.name.replace(".disabled", ""),
-                        "file": str(item),
-                        "enabled": not item.name.endswith(".disabled"),
-                        "size_kb": 0,
-                        "category": cat,
-                        "notes": "Folder-based mod",
-                        "added": "Unknown",
-                        "managed": False,
-                        "file_count": 1,
+                        mods.append({
+                            "name": item.name.replace(".disabled", ""),
+                            "file": str(item),
+                            "enabled": not item.name.endswith(".disabled"),
+                            "size_kb": 0,
+                            "category": cat,
+                            "notes": "Folder-based mod",
+                            "added": "Unknown",
+                            "managed": False,
+                            "file_count": 1,
                     })
 
     # 2. Add managed mods that have NO .archive files at all (CET, Redscript, etc.)

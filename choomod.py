@@ -90,8 +90,8 @@ FILE_ROUTES = [
     # ArchiveXL resource files
     ("suffix", ".xl",                            "archive/pc/mod",           "ArchiveXL"),
 
-    # Codeware (Redscript dependency)
-    ("path",   "codeware/",                      "r6/scripts",               "Redscript"),
+    # Codeware — binary component goes to red4ext/plugins, scripts go via r6/scripts rule below
+    ("path",   "red4ext/plugins/Codeware",         "red4ext/plugins",          "Red4Ext"),
 
     # Standard mod archives
     ("suffix", ".archive",                       "archive/pc/mod",           None),
@@ -134,7 +134,7 @@ FRAMEWORK_MODS = [
     },
     {
         "name": "Red4Ext",
-        "check_path": "red4ext",
+        "check_path": "bin/x64/RED4ext.dll",
         "url": "https://github.com/WopsS/RED4ext",
         "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/2380"
     },
@@ -158,7 +158,7 @@ FRAMEWORK_MODS = [
     },
     {
         "name": "Codeware",
-        "check_path": "r6/scripts/Codeware",
+        "check_path": "red4ext/plugins/Codeware",
         "url": "https://github.com/psiberx/cp2077-codeware",
         "nexus_url": "https://www.nexusmods.com/cyberpunk2077/mods/7381"
     },
@@ -203,9 +203,8 @@ def check_frameworks(game_path: Path) -> list[dict]:
         if not installed:
             name = framework["name"]
             if name == "Codeware":
-                installed = exists_ci(game_path, "red4ext/plugins/Codeware")
-            elif name == "Red4Ext":
-                installed = exists_ci(game_path, "bin/x64/RED4ext.dll")
+                # Also check script component as fallback
+                installed = exists_ci(game_path, "r6/scripts/Codeware")
             elif name == "Cyber Engine Tweaks":
                 installed = exists_ci(game_path, "bin/x64/plugins/cyber_engine_tweaks.dll")
 

@@ -84,10 +84,17 @@ FILE_ROUTES = [
     # Redscript compiler directory
     ("path",   "engine/tools",                   "engine/tools",             "Redscript"),
 
-    # ArchiveXL extension files — must come before generic .archive rule
+    # Red4Ext plugin folders — checked BEFORE .xl/.archive.xl suffix rules.
+    # This ensures framework bundles (e.g. ArchiveXL's own .xl resources in
+    # red4ext/plugins/ArchiveXL/Bundle/) stay intact inside the plugin folder
+    # instead of being scattered into archive/pc/mod.
+    ("path", "red4ext/plugins",                 "red4ext/plugins",          "Red4Ext"),
+
+    # ArchiveXL extension files — for standalone .xl resources NOT inside
+    # a red4ext/plugins folder (i.e. mods that ship loose .xl files for ArchiveXL)
     ("suffix", ".archive.xl",                    "archive/pc/mod",           "ArchiveXL"),
 
-    # ArchiveXL resource files
+    # ArchiveXL resource files (standalone, not inside red4ext/plugins)
     ("suffix", ".xl",                            "archive/pc/mod",           "ArchiveXL"),
 
     # Codeware — binary component goes to red4ext/plugins, scripts go via r6/scripts rule below
@@ -95,10 +102,6 @@ FILE_ROUTES = [
 
     # Standard mod archives
     ("suffix", ".archive",                       "archive/pc/mod",           None),
-
-    # Red4Ext plugin folders — must come before r6/scripts rule
-    # to catch .reds files that live inside red4ext/plugins/
-    ("path", "red4ext/plugins",                 "red4ext/plugins",          "Red4Ext"),
 
     # Redscript source files
     ("path",   "r6/scripts",                     "r6/scripts",               "Redscript"),
@@ -219,6 +222,10 @@ def check_frameworks(game_path: Path) -> list[dict]:
 
 # Extensions we recognise but deliberately skip (readmes, screenshots etc)
 SKIP_EXTENSIONS = {".txt", ".md", ".png", ".jpg", ".jpeg", ".pdf", ".url", ".gif"}
+
+# Filenames (no extension) to skip regardless of location — license/readme files
+# that frameworks sometimes ship at their plugin root
+SKIP_NAMES = {"license", "third_party_licenses", "readme", "changelog"}
 
 # ─── Detection ────────────────────────────────────────────────────────────────
 
@@ -386,7 +393,7 @@ def inspect_zip(zip_path: Path) -> dict:
                 continue
 
             p = Path(entry)
-            if p.suffix.lower() in SKIP_EXTENSIONS:
+            if p.suffix.lower() in SKIP_EXTENSIONS or p.name.lower() in SKIP_NAMES:
                 plan["skip"].append(entry)
                 continue
 
@@ -702,7 +709,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                     if not folder_is_managed:
                         if any(m["name"] == item.name.replace(".disabled", "") for m in mods):
                             continue
-                    
+
                         mods.append({
                             "name": item.name.replace(".disabled", ""),
                             "file": str(item),
@@ -713,7 +720,7 @@ def scan_mods(game_path: Path, manifest: dict) -> list[dict]:
                             "added": "Unknown",
                             "managed": False,
                             "file_count": 1,
-                    })
+                        })
 
     # 2. Add managed mods that have NO .archive files at all (CET, Redscript, etc.)
     for mod_name, mod_data in managed.items():
